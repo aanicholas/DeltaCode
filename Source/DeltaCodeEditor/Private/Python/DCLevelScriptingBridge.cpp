@@ -1,0 +1,181 @@
+/*
+ * DeltaCode - Unreal Engine Code Helper
+ * Copyright (c) 2026 Andrew Nicholas
+ *
+ * This program is free software: you can redistribute
+ * it and/or modify it under the terms of the GNU
+ * General Public License as published by the Free
+ * Software Foundation, either version 3 of the License,
+ * or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will
+ * be useful, but WITHOUT ANY WARRANTY; without even the
+ * implied warranty of MERCHANTABILITY or FITNESS FOR A
+ * PARTICULAR PURPOSE. See the GNU General Public License
+ * for more details.
+ */
+#include "Python/DCLevelScriptingBridge.h"
+#include "DeltaCodeEditorLog.h"
+
+#include "HAL/PlatformFileManager.h"
+#include "IPythonScriptPlugin.h"
+#include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
+
+#define LOCTEXT_NAMESPACE "DCLevelScriptingBridge"
+
+namespace DCLevelScriptingBridgePrivate
+{
+	static const TCHAR* PluginName = TEXT("DeltaCode");
+	static const TCHAR* ScriptRelativePath = TEXT("Content/Python/dc_danger_zone.py");
+
+	/**
+	 * Build the one-shot Python statement that imports dc_danger_zone via importlib
+	 * and calls run_danger_zone(<slug>). Using a raw string literal for the path keeps
+	 * Windows backslashes intact without us having to escape per-platform.
+	 */
+	static FString BuildCommand(const FString& AbsoluteScriptPath, const FString& TemplateSlug)
+	{
+		return FString::Printf(
+			TEXT("import importlib.util; "
+			     "_dc_spec = importlib.util.spec_from_file_location('dc_danger_zone', r'%s'); "
+			     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
+			     "_dc_spec.loader.exec_module(_dc_mod); "
+			     "_dc_mod.run_danger_zone('%s')"),
+			*AbsoluteScriptPath,
+			*TemplateSlug);
+	}
+}
+
+bool FDCLevelScriptingBridge::IsPythonAvailable()
+{
+	IPythonScriptPlugin* Python = IPythonScriptPlugin::Get();
+	return Python && Python->IsPythonAvailable();
+}
+
+FString FDCLevelScriptingBridge::TemplateSlug(EDCMissionTemplate Template)
+{
+	switch (Template)
+	{
+	case EDCMissionTemplate::Extraction: return TEXT("extraction");
+	case EDCMissionTemplate::Destiny:    return TEXT("destiny");
+	case EDCMissionTemplate::Fallout:    return TEXT("fallout");
+	case EDCMissionTemplate::OpenWorld:  return TEXT("openworld");
+	default:                             return TEXT("extraction");
+	}
+}
+
+FString FDCLevelScriptingBridge::GetScriptPath()
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
+	if (!Plugin.IsValid())
+	{
+		// Fallback — uncommon, but if the plugin descriptor can't be resolved we
+		// still want a best-guess path so the error message points somewhere useful.
+		return FPaths::ConvertRelativePathToFull(
+			FPaths::Combine(FPaths::ProjectPluginsDir(), PluginName, ScriptRelativePath));
+	}
+	return FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(Plugin->GetBaseDir(), ScriptRelativePath));
+}
+
+bool FDCLevelScriptingBridge::CreateCoreAssets(FString& OutMessage)
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	if (!IsPythonAvailable())
+	{
+		OutMessage = TEXT(
+			"Python Script Plugin is not available. Enable it under "
+			"Edit > Plugins > Scripting > Python Editor Script Plugin, then restart the editor.");
+		UE_LOG(LogDeltaCodeEditor, Warning, TEXT("[CreateCoreAssets] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString ScriptPath = GetScriptPath();
+
+	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*ScriptPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("DeltaCode script not found at %s."), *ScriptPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[CreateCoreAssets] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString Command = FString::Printf(
+		TEXT("import importlib.util; "
+		     "_dc_spec = importlib.util.spec_from_file_location('dc_danger_zone', r'%s'); "
+		     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
+		     "_dc_spec.loader.exec_module(_dc_mod); "
+		     "_dc_mod.create_core_blueprints()"),
+		*ScriptPath);
+
+	UE_LOG(LogDeltaCodeEditor, Log, TEXT("[CreateCoreAssets] creating core Blueprint assets…"));
+
+	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+
+	if (bOk)
+	{
+		OutMessage = TEXT("Core Blueprint assets created. Check Output Log for details.");
+	}
+	else
+	{
+		OutMessage = TEXT("Core asset creation failed. Check Output Log (LogPython) for the traceback.");
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[CreateCoreAssets] %s"), *OutMessage);
+	}
+
+	return bOk;
+}
+
+bool FDCLevelScriptingBridge::ExecuteDangerZoneScript(EDCMissionTemplate Template, FString& OutMessage)
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	if (!IsPythonAvailable())
+	{
+		OutMessage = TEXT(
+			"Python Script Plugin is not available. Enable it under "
+			"Edit > Plugins > Scripting > Python Editor Script Plugin, then restart the editor.");
+		UE_LOG(LogDeltaCodeEditor, Warning, TEXT("[DangerZone] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString ScriptPath = GetScriptPath();
+
+	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*ScriptPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("Danger Zone script not found at %s."), *ScriptPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[DangerZone] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString Slug = TemplateSlug(Template);
+	const FString Command = BuildCommand(ScriptPath, Slug);
+
+	UE_LOG(LogDeltaCodeEditor, Log,
+		TEXT("[DangerZone] executing template='%s' script='%s'"), *Slug, *ScriptPath);
+
+	// Embedded Python runs synchronously on the game thread. Returns false when
+	// the script raises an unhandled exception — details land in the Output Log.
+	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+
+	if (bOk)
+	{
+		OutMessage = FString::Printf(
+			TEXT("Danger Zone built: template=%s. See Output Log for spawn details."), *Slug);
+	}
+	else
+	{
+		OutMessage = FString::Printf(
+			TEXT("Danger Zone script raised an error. Check Output Log (LogPython) for the traceback. template=%s"),
+			*Slug);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[DangerZone] %s"), *OutMessage);
+	}
+
+	return bOk;
+}
+
+#undef LOCTEXT_NAMESPACE

@@ -1,0 +1,34 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "1.0.0",
+  "FriendlyName": "DeltaCode",
+  "Description": "AI-powered code generation and level authoring for UE5. Safe Mode and Danger Zone.",
+  "Category": "Editor",
+  "CreatedBy": "DeltaCode",
+  "CreatedByURL": "",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "CanContainContent": true,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Installed": false,
+  "Plugins": [
+    { "Name": "EnhancedInput", "Enabled": true },
+    { "Name": "GameplayAbilities", "Enabled": true },
+    { "Name": "PythonScriptPlugin", "Enabled": true }
+  ],
+  "Modules": [
+    {
+      "Name": "DeltaCode",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    },
+    {
+      "Name": "DeltaCodeEditor",
+      "Type": "Editor",
+      "LoadingPhase": "PostEngineInit"
+    }
+  ]
+}

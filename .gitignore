@@ -1,0 +1,45 @@
+# ─── Unreal Engine build artifacts ───────────────────────────────────────────
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+*.VC.db
+*.VC.opendb
+*.sdf
+*.sln
+*.suo
+*.opensdf
+*.xcodeproj/
+*.xcworkspace/
+.vs/
+
+# ─── IDE / editor config ─────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.code-workspace
+
+# ─── OS cruft ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Python (Danger Zone scripts live under Content/Python) ──────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ─── Secrets — must never be committed (Hard Constraint #3) ──────────────────
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+credentials.json
+api_key.txt
+DeltaCode.ini
+
+# ─── Claude Code — local-only config / permissions ───────────────────────────
+.claude/settings.local.json
