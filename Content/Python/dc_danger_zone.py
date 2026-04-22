@@ -125,6 +125,15 @@ def spawn_actor(class_path, location, rotation=None, label=None):
     if actor is not None:
         if label:
             actor.set_actor_label(label)
+        # World Partition workaround: mark the spawned actor as always-loaded
+        # rather than spatially streamed. Python-spawned actors aren't always
+        # registered with the DataLayer system in time for the save hook,
+        # which triggers an assertion — "CanResolveDataLayers()" — and a
+        # hard crash on save after Build Mission.
+        try:
+            actor.set_editor_property('is_spatially_loaded', False)
+        except Exception:
+            pass
         # Skeletal mesh cannot be added to the BP asset in UE5.7 (no
         # simple_construction_script property), so we apply it to each spawned
         # instance instead.
