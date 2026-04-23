@@ -64,6 +64,13 @@ _PRE_EQUIPPED_CLASS_PATHS = (
     "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy",
 )
 
+# Dedicated non-World-Partition level that Danger Zone operates on. WP levels
+# build actor descriptors at save time, which asserts in OnActorDescInstanceAdded
+# for actors spawned via UEditorActorSubsystem (Python's only spawn path). Epic
+# ships no runtime WP→standard converter, so we side-step by owning our own
+# standard level. First run creates it; subsequent runs just open it.
+_DC_DANGER_ZONE_LEVEL = "/Game/DeltaCode/Maps/L_DC_DangerZone"
+
 # ─── SUBSYSTEM HELPERS ───────────────────────────────────────────────────────
 
 def _actor_subsystem():
@@ -74,6 +81,23 @@ def _actor_subsystem():
 def _editor_subsystem():
     """Resolve the UnrealEditorSubsystem — replaces EditorLevelLibrary.get_editor_world."""
     return unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+
+def _spawn_registered(cls, loc, rot):
+    """Spawn via the C++ World-Partition-safe path, falling back to the raw
+    EditorActorSubsystem call if the native library is unavailable.
+
+    DCWorldPartitionLibrary.spawn_actor_registered calls the same editor path
+    but also runs UDataLayerEditorSubsystem::InitializeNewActorDataLayers,
+    which the Python spawn bypasses. Without that call the DataLayer manager
+    asserts on save (CanResolveDataLayers()) the moment the user tries to
+    persist the generated level.
+    """
+    lib = getattr(unreal, 'DCWorldPartitionLibrary', None)
+    if lib is not None:
+        actor = lib.spawn_actor_registered(cls, loc, rot)
+        if actor is not None:
+            return actor
+    return _actor_subsystem().spawn_actor_from_class(cls, loc, rot)
 
 def get_editor_world():
     subsys = _editor_subsystem()
@@ -121,19 +145,10 @@ def spawn_actor(class_path, location, rotation=None, label=None):
     # set_actor_location() with teleport=False gets treated as a swept move from
     # the BP's SCS root (mannequin pivot ≈ -710, 710, -110) and silently fails
     # against the new floor, pinning every actor to that pivot.
-    actor = _actor_subsystem().spawn_actor_from_class(asset, loc, rot)
+    actor = _spawn_registered(asset, loc, rot)
     if actor is not None:
         if label:
             actor.set_actor_label(label)
-        # World Partition workaround: mark the spawned actor as always-loaded
-        # rather than spatially streamed. Python-spawned actors aren't always
-        # registered with the DataLayer system in time for the save hook,
-        # which triggers an assertion — "CanResolveDataLayers()" — and a
-        # hard crash on save after Build Mission.
-        try:
-            actor.set_editor_property('is_spatially_loaded', False)
-        except Exception:
-            pass
         # Skeletal mesh cannot be added to the BP asset in UE5.7 (no
         # simple_construction_script property), so we apply it to each spawned
         # instance instead.
@@ -144,8 +159,7 @@ def spawn_actor(class_path, location, rotation=None, label=None):
 def _spawn_placeholder(location, rotation, label):
     """Spawn a StaticMeshActor with a cube mesh as a visual placeholder."""
     cube_path = "/Engine/BasicShapes/Cube.Cube"
-    actor = _actor_subsystem().spawn_actor_from_class(
-        unreal.StaticMeshActor, location, rotation)
+    actor = _spawn_registered(unreal.StaticMeshActor, location, rotation)
     if actor is None:
         return None
     mesh = unreal.load_asset(cube_path)
@@ -161,7 +175,7 @@ def create_floor(template_slug):
     scale_x = width / 100.0
     scale_y = depth / 100.0
 
-    actor = _actor_subsystem().spawn_actor_from_class(
+    actor = _spawn_registered(
         unreal.StaticMeshActor, unreal.Vector(cx, cy, 0), unreal.Rotator(0, 0, 0))
     if actor is None:
         unreal.log_error("DeltaCode: failed to spawn arena floor actor.")
@@ -702,9 +716,21 @@ def run_danger_zone(mission_template):
     raised here will propagate back to the bridge as a failed ExecPythonCommand
     and surface in the Output Log (LogPython).
     """
+    # Unconditionally operate on a dedicated non-WP sandbox level. First run
+    # creates it; every later run just opens it. Never touches whatever level
+    # the user had loaded.
+    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+
+    if not unreal.EditorAssetLibrary.does_asset_exist(_DC_DANGER_ZONE_LEVEL):
+        les.new_level(_DC_DANGER_ZONE_LEVEL)
+        unreal.log("DeltaCode: created L_DC_DangerZone")
+    else:
+        les.load_level(_DC_DANGER_ZONE_LEVEL)
+        unreal.log("DeltaCode: opened L_DC_DangerZone")
+
     world = get_editor_world()
     if world is None:
-        unreal.log_error("DeltaCode: no editor world found — open a level before running Danger Zone.")
+        unreal.log_error("DeltaCode: no editor world found after opening L_DC_DangerZone.")
         return
 
     builder = _BUILDERS.get(mission_template)
