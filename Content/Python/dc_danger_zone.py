@@ -513,22 +513,30 @@ def _inspect_preequipped_once(actor, class_path):
 
 
 def _refresh_dynamic_classes():
-    """Probe /Game/Variant_Combat/Blueprints/AI/ at build time and overlay
-    DC_CLASSES. If a dedicated Boss variant ships with the template, use it
-    for boss_base; log any spawners so we know to ignore them (they are not
-    pawns — spawning them would place a spawner actor in the world instead
-    of an enemy)."""
+    """Probe /Game/Variant_Combat/Blueprints/AI/ at build time and route
+    DC_CLASSES accordingly.
+
+    If the Variant_Combat template is present, use BP_CombatEnemy (the stock
+    default) and override boss_base with a Boss variant when one ships.
+    If Variant_Combat is missing (blank project), fall back to the plugin's
+    own B_DC_EnemyBase so spawns produce real Character actors instead of
+    placeholder cubes. B_DC_EnemyBase's BehaviorTree still needs manual
+    wiring — that's a separate concern from routing.
+    """
+    fallback_path = "/Game/DeltaCode/Core/B_DC_EnemyBase.B_DC_EnemyBase_C"
     try:
         registry = unreal.AssetRegistryHelpers.get_asset_registry()
         assets = registry.get_assets_by_path(
             "/Game/Variant_Combat/Blueprints/AI", recursive=True)
     except Exception as e:
         unreal.log_warning(f"DeltaCode: AI-path probe failed — {e}")
-        return
+        assets = None
 
     if not assets:
         unreal.log("DeltaCode: /Game/Variant_Combat/Blueprints/AI — empty or "
-                   "missing. Using DC_CLASSES defaults.")
+                   "missing. Falling back to B_DC_EnemyBase for enemy/boss.")
+        DC_CLASSES["enemy_base"] = fallback_path
+        DC_CLASSES["boss_base"] = fallback_path
         return
 
     for a in assets:
