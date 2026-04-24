@@ -497,19 +497,26 @@ def _apply_mesh_to_actor(actor, class_path):
     skel_mesh = unreal.load_asset(_MANNEQUIN_MESH)
     if skel_mesh is None:
         return
-    comps = actor.get_components_by_class(unreal.SkeletalMeshComponent)
-    if comps:
-        comps[0].set_editor_property("skeletal_mesh_asset", skel_mesh)
+    # Prefer the inherited ACharacter mesh (CharacterMesh0). In a blank
+    # project that hasn't run _add_mannequin_mesh's SCS path, that's the
+    # only SkeletalMeshComponent present — a bare class-based lookup
+    # without the name match would miss it and leave the enemy mesh-less.
+    all_mesh_comps = actor.get_components_by_class(unreal.SkeletalMeshComponent)
+    mesh_comp = next(
+        (c for c in all_mesh_comps if c.get_name() == "CharacterMesh0"),
+        all_mesh_comps[0] if all_mesh_comps else None)
+    if mesh_comp is not None:
+        mesh_comp.set_editor_property("skeletal_mesh_asset", skel_mesh)
         # Drop the mesh by the capsule half-height so the mannequin's feet sit
         # on the capsule bottom rather than floating at its centre.
-        comps[0].set_editor_property(
+        mesh_comp.set_editor_property(
             "relative_location", unreal.Vector(0, 0, -_CHARACTER_Z_OFFSET))
         # Third-person combat anim BP — best fit for enemy/boss behaviour.
         anim_class = unreal.load_class(
             None,
             "/Game/Variant_Combat/Anims/ABP_Manny_Combat.ABP_Manny_Combat_C")
         if anim_class is not None:
-            comps[0].set_editor_property("anim_class", anim_class)
+            mesh_comp.set_editor_property("anim_class", anim_class)
         else:
             unreal.log_warning(
                 f"DeltaCode: failed to load ABP_Manny_Combat for "
