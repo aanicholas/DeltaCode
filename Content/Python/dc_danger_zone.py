@@ -39,7 +39,7 @@ _PRESERVE_CLASSES = (
 # The engine Plane mesh is 100×100 cm at scale 1.
 _FLOOR_CONFIGS = {
     "extraction":    (8000,  3000,  2000,  0),
-    "arena":         (12000, 3000,  4750,  0),
+    "arena":         (14000, 3000,  7000,  0),
     "questhub":      (12000, 12000, 0,     0),
     "reactivestory": (25000, 25000, 0,     0),
 }
@@ -191,6 +191,68 @@ def create_floor(template_slug):
     return actor
 
 
+# ─── ARENA GAUNTLET GRAYBOX HELPERS ──────────────────────────────────────────
+# Used by build_arena() to stamp cover blocks, boss pillars, reward platform,
+# and entry triggers. Stick to engine basic shapes (Cube, Plane) and TriggerBox
+# so a blank project compiles this with zero extra assets.
+
+def _spawn_cube(location, scale, label):
+    """StaticMeshActor with the engine Cube mesh at a given scale and label."""
+    cube = unreal.load_asset("/Engine/BasicShapes/Cube.Cube")
+    actor = _spawn_registered(unreal.StaticMeshActor, location, unreal.Rotator(0, 0, 0))
+    if actor is None:
+        return None
+    if cube is not None:
+        actor.static_mesh_component.set_static_mesh(cube)
+    actor.set_actor_scale3d(scale)
+    actor.set_actor_label(label)
+    return actor
+
+
+def _spawn_cover_cluster(label_prefix, center):
+    """Four 300×150×150 cm cover blocks at (±400, ±400) from the arena center."""
+    cube_scale = unreal.Vector(3.0, 1.5, 1.5)
+    offsets = ((-400, -400), (400, -400), (-400, 400), (400, 400))
+    for i, (dx, dy) in enumerate(offsets):
+        loc = unreal.Vector(center[0] + dx, center[1] + dy, 75)
+        _spawn_cube(loc, cube_scale, f"{label_prefix}_{i}")
+
+
+def _spawn_boss_cover(label_prefix, center):
+    """Four 200×200×400 cm corner pillars around the boss arena center."""
+    pillar_scale = unreal.Vector(2.0, 2.0, 4.0)
+    offsets = ((-1000, -1000), (1000, -1000), (-1000, 1000), (1000, 1000))
+    for i, (dx, dy) in enumerate(offsets):
+        loc = unreal.Vector(center[0] + dx, center[1] + dy, 200)
+        _spawn_cube(loc, pillar_scale, f"{label_prefix}_{i}")
+
+
+def _spawn_reward_platform(label, center):
+    """Raised 1000×1000 cm plane at z=50 — the post-boss reward area."""
+    plane = unreal.load_asset("/Engine/BasicShapes/Plane.Plane")
+    loc = unreal.Vector(center[0], center[1], 50)
+    actor = _spawn_registered(unreal.StaticMeshActor, loc, unreal.Rotator(0, 0, 0))
+    if actor is None:
+        return
+    if plane is not None:
+        actor.static_mesh_component.set_static_mesh(plane)
+    actor.set_actor_scale3d(unreal.Vector(10.0, 10.0, 1.0))
+    actor.set_actor_label(label)
+
+
+def _spawn_arena_entry_trigger(label, position):
+    """TriggerBox marker at an arena entrance. No gameplay wiring yet — a
+    future slice will hook arena gating off these actors via their labels.
+    Default TriggerBox brush is 200×200×200 cm; scale forms a 100×800×400
+    gate across the entry axis."""
+    loc = unreal.Vector(position[0], position[1], position[2] + 200)
+    actor = _spawn_registered(unreal.TriggerBox, loc, unreal.Rotator(0, 0, 0))
+    if actor is None:
+        return
+    actor.set_actor_label(label)
+    actor.set_actor_scale3d(unreal.Vector(0.5, 4.0, 2.0))
+
+
 def rebuild_navmesh():
     """Rebuild navigation for the current editor world so spawned AI can path.
 
@@ -238,22 +300,56 @@ def build_extraction(_world):
     unreal.log("DeltaCode: extraction mission built.")
 
 def build_arena(_world):
-    """Arena Gauntlet — three linear encounter arenas + boss room + reward."""
+    """Arena Gauntlet — Slice A: level skeleton only.
+
+    Linear graybox along +X: three combat arenas (centers 1000/4000/7000),
+    a boss arena (center 10500), and a reward platform (center 13000).
+    Each arena gets cover geometry; entry positions are marked with
+    TriggerBox actors for the future gating slice to hook into.
+
+    Gameplay systems left for later slices:
+      • Slice B — AI perception/state colors
+      • Slice C — arena gate mechanics (the entry triggers exist but are
+        not yet wired; a future slice looks them up by label)
+      • Slice D — boss phases / shield
+      • Slice E — hub level + transition
+      • Slice F — vendor / storage actors
+    """
     with unreal.ScopedEditorTransaction("DeltaCode: Build Arena Mission"):
         z = _CHARACTER_Z_OFFSET
-        for i, x in enumerate((0, 3000, 6000)):
-            spawn_actor(DC_CLASSES["spawn_zone"], (x, 0,   0), label=f"DC_Arena{i+1}_SpawnZone")
-            spawn_actor(DC_CLASSES["objective"],  (x, 0, 200), label=f"DC_Arena{i+1}_Objective")
+
+        # (label_prefix, entry_x, center_x) for the three combat arenas.
+        arenas = (
+            ("DC_Arena1", 200,  1000),
+            ("DC_Arena2", 3000, 4000),
+            ("DC_Arena3", 6000, 7000),
+        )
+        for prefix, entry_x, center_x in arenas:
+            _spawn_arena_entry_trigger(f"{prefix}_EntryTrigger", (entry_x, 0, 0))
+            _spawn_cover_cluster(f"{prefix}_Cover", center=(center_x, 0))
+            spawn_actor(DC_CLASSES["spawn_zone"], (center_x, 0,   0),
+                        label=f"{prefix}_SpawnZone")
+            spawn_actor(DC_CLASSES["objective"],  (center_x, 0, 200),
+                        label=f"{prefix}_Objective")
             for j in range(4):
                 off_x = (j % 2) * 400 - 200
                 off_y = (j // 2) * 400 - 200
-                spawn_actor(DC_CLASSES["enemy_base"], (x + off_x, off_y, z),
-                            label=f"DC_Arena{i+1}_Enemy_{j}")
+                spawn_actor(DC_CLASSES["enemy_base"],
+                            (center_x + off_x, off_y, z),
+                            label=f"{prefix}_Enemy_{j}")
 
-        boss_x = 9000
-        spawn_actor(DC_CLASSES["boss_base"],  (boss_x,        0,   z), label="DC_FinalBoss")
-        spawn_actor(DC_CLASSES["objective"],  (boss_x,        0, 200), label="DC_Objective_DefeatBoss")
-        spawn_actor(DC_CLASSES["pickup_base"],(boss_x + 500,  0,   0), label="DC_BossChestReward")
+        # Boss arena — larger footprint, corner pillars instead of a cluster.
+        _spawn_arena_entry_trigger("DC_BossArena_EntryTrigger", (9000, 0, 0))
+        _spawn_boss_cover("DC_Boss_Cover", center=(10500, 0))
+        spawn_actor(DC_CLASSES["boss_base"],  (10500, 0,   z),
+                    label="DC_FinalBoss")
+        spawn_actor(DC_CLASSES["objective"],  (10500, 0, 200),
+                    label="DC_Objective_DefeatBoss")
+
+        # Reward area — raised plane with the chest pickup on top.
+        _spawn_reward_platform("DC_RewardPlatform", center=(13000, 0))
+        spawn_actor(DC_CLASSES["pickup_base"], (13000, 0, 100),
+                    label="DC_BossChestReward")
 
     rebuild_navmesh()
     unreal.log("DeltaCode: arena mission built.")
