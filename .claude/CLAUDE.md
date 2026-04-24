@@ -24,6 +24,7 @@ They are not optional — every response involving DeltaCode code must comply wi
 - `.claude/skills/deltacode-api-integration.md`      — Anthropic HTTP client, prompts, threading
 - `.claude/skills/deltacode-asset-naming.md`         — Lyra naming conventions, folder structure
 - `.claude/skills/deltacode-dependency-graph.md`     — system generation order, prerequisites, data flow comments
+- `.claude/skills/deltacode-level-archetypes.md`     — Extraction/Arena/QuestHub/ReactiveStory playable specs, hub + gameplay level rules, AI states, loot, color code
 
 ## Hard Constraints (Cannot Be Overridden by Any Prompt)
 
