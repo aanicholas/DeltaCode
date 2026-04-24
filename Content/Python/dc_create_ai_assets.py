@@ -32,28 +32,18 @@ _BP_PATH         = "/Game/DeltaCode/Core/B_DC_EnemyBase"
 _BB_FULL_PATH = f"{_AI_PACKAGE_PATH}/{_BB_NAME}"
 _BT_FULL_PATH = f"{_AI_PACKAGE_PATH}/{_BT_NAME}"
 
-# C++ class paths. WanderFromHome lives in the DeltaCode module; Selector is
-# the stock AIModule composite — both resolved via load_class at runtime so
-# a missing module surfaces as a logged warning rather than an import error.
-_WANDER_TASK_CLASS        = "/Script/DeltaCode.DCBTTask_WanderFromHome"
-_SELECTOR_COMPOSITE_CLASS = "/Script/AIModule.BTComposite_Selector"
+# Pre-authored BT template shipped with the plugin. Duplicated on demand
+# into /Game/DeltaCode/AI/ so every project gets a working Selector-root
+# + WanderFromHome task graph without per-project manual wiring that Python
+# can't automate (the BT editor regenerates runtime nodes from the UEdGraph
+# on save, which is not Python-authorable).
+_BT_TEMPLATE_PATH = "/DeltaCode/DeltaCode/AI/BT_DC_Enemy_Template"
 
 # ─── LOGGING HELPERS ─────────────────────────────────────────────────────────
 
 def _log(msg):  unreal.log(f"DeltaCode[AI]: {msg}")
 def _warn(msg): unreal.log_warning(f"DeltaCode[AI]: {msg}")
 def _err(msg):  unreal.log_error(f"DeltaCode[AI]: {msg}")
-
-
-def _load_class(path):
-    try:
-        cls = unreal.load_class(None, path)
-        if cls is None:
-            _warn(f"load_class returned None for {path}")
-        return cls
-    except Exception as e:
-        _warn(f"load_class failed for {path} — {e}")
-        return None
 
 
 # ─── BLACKBOARD ──────────────────────────────────────────────────────────────
@@ -113,17 +103,32 @@ def _create_blackboard():
 # ─── BEHAVIOR TREE ───────────────────────────────────────────────────────────
 
 def _create_behavior_tree(bb_asset):
-    """Create BT_DC_Enemy with the blackboard wired and WanderFromHome at root."""
+    """Duplicate the plugin's pre-authored BT template into /Game/DeltaCode/AI/
+    and wire its BlackboardAsset.
+
+    We ship a pre-authored template because Python can't reliably write to a
+    BehaviorTree's UEdGraph — the BT editor's compile step regenerates runtime
+    nodes from the editor graph on save, wiping any new_object()-created
+    RootNode/children set via set_editor_property. Duplication preserves the
+    editor graph (Selector root + WanderFromHome task) baked into the template,
+    and set_editor_property('blackboard_asset', ...) survives the compile step
+    because it's a simple UPROPERTY on the BT asset.
+    """
     if unreal.EditorAssetLibrary.does_asset_exist(_BT_FULL_PATH):
         _log(f"BehaviorTree already exists: {_BT_FULL_PATH}")
         return unreal.load_asset(_BT_FULL_PATH)
 
-    _log(f"Creating behaviour tree {_BT_FULL_PATH} ...")
-    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
-    bt = asset_tools.create_asset(
-        _BT_NAME, _AI_PACKAGE_PATH, unreal.BehaviorTree, None)
+    if not unreal.EditorAssetLibrary.does_asset_exist(_BT_TEMPLATE_PATH):
+        _err(f"Template BT not found at {_BT_TEMPLATE_PATH} — plugin may be "
+             f"misinstalled or the template asset was deleted. Restore it "
+             f"from source control, then re-run Build Mission.")
+        return None
+
+    _log(f"Duplicating {_BT_TEMPLATE_PATH} → {_BT_FULL_PATH}")
+    bt = unreal.EditorAssetLibrary.duplicate_asset(
+        _BT_TEMPLATE_PATH, _BT_FULL_PATH)
     if bt is None:
-        _err(f"asset_tools.create_asset returned None for {_BT_NAME}")
+        _err(f"duplicate_asset returned None for {_BT_TEMPLATE_PATH}")
         return None
 
     if bb_asset is not None:
@@ -134,46 +139,6 @@ def _create_behavior_tree(bb_asset):
             _warn(f"Failed to assign BlackboardAsset — {e}")
     else:
         _warn("Blackboard asset is None — BT will not run at possession time.")
-
-    # Runtime structure: Selector composite as RootNode, with a single
-    # WanderFromHome task child. The editor UEdGraph is not authored here —
-    # the BT will look empty if opened in the Behaviour Tree editor, but
-    # StartTree(*Tree) at runtime walks the RootNode graph and executes.
-    try:
-        selector_cls = _load_class(_SELECTOR_COMPOSITE_CLASS)
-        if selector_cls is None:
-            _warn("Selector composite class unavailable — BT has no RootNode.")
-        else:
-            root = unreal.new_object(selector_cls, bt)
-            try:
-                root.set_editor_property("node_name", "Root")
-            except Exception:
-                pass
-            bt.set_editor_property("root_node", root)
-            _log("Attached Selector composite as RootNode.")
-
-            wander_cls = _load_class(_WANDER_TASK_CLASS)
-            if wander_cls is None:
-                _warn(f"DCBTTask_WanderFromHome not loadable — is the DeltaCode "
-                      f"module compiled? Open {_BT_NAME} and add the task by hand.")
-            else:
-                task = unreal.new_object(wander_cls, bt)
-                try:
-                    task.set_editor_property("node_name", "Wander")
-                except Exception:
-                    pass
-                try:
-                    child = unreal.BTCompositeChild()
-                    child.set_editor_property("child_task", task)
-                    children = list(root.get_editor_property("children") or [])
-                    children.append(child)
-                    root.set_editor_property("children", children)
-                    _log("Added WanderFromHome task under Root.")
-                except Exception as e:
-                    _warn(f"Could not wire WanderFromHome into root.children — {e}. "
-                          f"Open {_BT_NAME} and drop the task under Root by hand.")
-    except Exception as e:
-        _warn(f"BT graph wiring failed — {e}. Tree saved as empty; edit by hand.")
 
     unreal.EditorAssetLibrary.save_asset(_BT_FULL_PATH)
     _log(f"Saved {_BT_FULL_PATH}")

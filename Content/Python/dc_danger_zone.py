@@ -30,6 +30,7 @@ _PRESERVE_CLASSES = (
     unreal.SkyLight,
     unreal.ExponentialHeightFog,
     unreal.PostProcessVolume,
+    unreal.NavMeshBoundsVolume,
 )
 
 # DeltaCode Blueprint classes in the plugin's protected Core folder. These
@@ -820,11 +821,11 @@ _BUILDERS = {
     "reactivestory": build_reactivestory,
 }
 
-def _spawn_default_lighting():
-    """Add DirectionalLight + SkyLight + SkyAtmosphere to a freshly created
-    sandbox level so PIE isn't pitch black. Called only on first-time
-    creation of L_DC_DangerZone; subsequent runs load the saved level which
-    already contains these actors."""
+def _spawn_level_essentials():
+    """Add lighting + NavMesh bounds to a freshly created sandbox level so
+    PIE isn't pitch black and spawned AI has something to path on. Called
+    on first-time creation of L_DC_DangerZone; clear_level() preserves
+    these actors across subsequent Build Mission runs via _PRESERVE_CLASSES."""
     # Sun light at -45° pitch — standard "sun from above/behind" angle.
     dir_light = _spawn_registered(
         unreal.DirectionalLight,
@@ -849,6 +850,40 @@ def _spawn_default_lighting():
     if atmosphere is not None:
         atmosphere.set_actor_label("DC_SkyAtmosphere")
 
+    _ensure_navmesh_bounds()
+
+
+def _ensure_navmesh_bounds():
+    """Spawn a NavMeshBoundsVolume if none exists in the current level.
+
+    Sized 30000×30000×2000 cm centered at origin — covers every current
+    mission template with margin. Worst case is reactivestory (25000×25000
+    at origin, ~2500cm margin); arena (14000×3000 at x=7000) gets ~1000cm
+    margin on the +X edge; extraction and questhub are fully interior.
+
+    Idempotent: safe to call every Build Mission. Also called from the
+    load_level branch as a backfill for levels created before NavMesh
+    auto-spawn was added.
+    """
+    existing = [a for a in _actor_subsystem().get_all_level_actors()
+                if isinstance(a, unreal.NavMeshBoundsVolume)]
+    if existing:
+        unreal.log(
+            f"DeltaCode: NavMeshBoundsVolume already present ({len(existing)}) — skipping.")
+        return
+
+    volume = _spawn_registered(
+        unreal.NavMeshBoundsVolume,
+        unreal.Vector(0, 0, 0),
+        unreal.Rotator(0, 0, 0))
+    if volume is None:
+        unreal.log_warning("DeltaCode: failed to spawn NavMeshBoundsVolume.")
+        return
+    # Default NavMeshBoundsVolume brush is 200×200×200 cm. Scale to 30000×30000×2000.
+    volume.set_actor_scale3d(unreal.Vector(150.0, 150.0, 10.0))
+    volume.set_actor_label("DC_NavMeshBounds")
+    unreal.log("DeltaCode: spawned DC_NavMeshBounds (30000×30000×2000 cm at origin).")
+
 
 def run_danger_zone(mission_template):
     """Clear the level, then spawn the template's mission layout.
@@ -864,13 +899,16 @@ def run_danger_zone(mission_template):
 
     if not unreal.EditorAssetLibrary.does_asset_exist(_DC_DANGER_ZONE_LEVEL):
         les.new_level(_DC_DANGER_ZONE_LEVEL)
-        _spawn_default_lighting()
-        # Persist the lights so the next run's load_level branch sees them
-        # instead of an empty saved level.
+        _spawn_level_essentials()
+        # Persist lights + navmesh so the next run's load_level branch sees
+        # them instead of an empty saved level.
         les.save_current_level()
         unreal.log("DeltaCode: created L_DC_DangerZone")
     else:
         les.load_level(_DC_DANGER_ZONE_LEVEL)
+        # Backfill navmesh on levels created before auto-spawn existed.
+        # Idempotent — no-op if the level already has one.
+        _ensure_navmesh_bounds()
         unreal.log("DeltaCode: opened L_DC_DangerZone")
 
     world = get_editor_world()
