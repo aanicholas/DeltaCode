@@ -80,9 +80,9 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 	ModeOptions.Add(MakeShared<EDCGenerationMode>(EDCGenerationMode::Danger));
 
 	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Extraction));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Destiny));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Fallout));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::OpenWorld));
+	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Arena));
+	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::QuestHub));
+	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::ReactiveStory));
 
 	const UDeltaCodeSettings* Settings = UDeltaCodeSettings::Get();
 	const EDCGenerationMode InitialMode =

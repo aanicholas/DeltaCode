@@ -52,10 +52,10 @@ Display result in DeltaCode panel
 UENUM(BlueprintType)
 enum class EDCMissionTemplate : uint8
 {
-    Extraction      UMETA(DisplayName = "Extraction Shooter"),
-    Destiny         UMETA(DisplayName = "Destiny-Style Mission"),
-    Fallout         UMETA(DisplayName = "Fallout-Style Mission"),
-    OpenWorldRPG    UMETA(DisplayName = "Open World RPG")
+    Extraction      UMETA(DisplayName = "Extraction Zone"),
+    Arena           UMETA(DisplayName = "Arena Gauntlet"),
+    QuestHub        UMETA(DisplayName = "Quest Hub World"),
+    ReactiveStory   UMETA(DisplayName = "Reactive Story World")
 };
 
 UCLASS()
@@ -114,9 +114,9 @@ FString UDCLevelScriptingBridge::BuildPythonCommandString(EDCMissionTemplate Tem
     switch (Template)
     {
         case EDCMissionTemplate::Extraction:    TemplateName = TEXT("extraction");    break;
-        case EDCMissionTemplate::Destiny:       TemplateName = TEXT("destiny");       break;
-        case EDCMissionTemplate::Fallout:       TemplateName = TEXT("fallout");       break;
-        case EDCMissionTemplate::OpenWorldRPG:  TemplateName = TEXT("openworld");     break;
+        case EDCMissionTemplate::Arena:         TemplateName = TEXT("arena");         break;
+        case EDCMissionTemplate::QuestHub:      TemplateName = TEXT("questhub");      break;
+        case EDCMissionTemplate::ReactiveStory: TemplateName = TEXT("reactivestory"); break;
     }
 
     return FString::Printf(
@@ -226,7 +226,7 @@ def rebuild_navmesh():
 
 def build_extraction(world):
     """
-    Extraction Shooter layout:
+    Extraction Zone layout:
     - 3 loot zones with pickup clusters
     - 8 enemy patrol positions around the map
     - 1 extraction zone at the far end
@@ -270,15 +270,15 @@ def build_extraction(world):
     rebuild_navmesh()
     unreal.log("DeltaCode: Extraction mission built.")
 
-def build_destiny(world):
+def build_arena(world):
     """
-    Destiny-style Arena Mission:
+    Arena Gauntlet:
     - Linear path of 3 encounter arenas
     - Each arena: wave spawner + objective trigger
     - Final arena: boss room with ADCBossBase
     - Chest reward actor after boss
     """
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Destiny Mission"):
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Arena Mission"):
 
         # Arena positions along X axis (each 3000 units apart)
         arenas = [0, 3000, 6000]
@@ -307,18 +307,18 @@ def build_destiny(world):
                    label="DC_BossChestReward")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: Destiny mission built.")
+    unreal.log("DeltaCode: Arena mission built.")
 
-def build_fallout(world):
+def build_questhub(world):
     """
-    Fallout-Style Mission:
+    Quest Hub World:
     - Central hub with quest giver NPC
     - 3 quest objective locations in the world
     - Ambient enemy patrols between objectives
     - Optional boss at final objective
     - Loot scattered throughout
     """
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Fallout Mission"):
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Quest Hub Mission"):
 
         # Quest hub / starting area
         spawn_actor(DC_CLASSES["objective"], (0, 0, 0),
@@ -353,11 +353,11 @@ def build_fallout(world):
                    label="DC_FinalObjectiveBoss")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: Fallout mission built.")
+    unreal.log("DeltaCode: Quest Hub mission built.")
 
-def build_openworld_rpg(world):
+def build_reactivestory(world):
     """
-    Open World RPG (Skyrim/Elden Ring/Witcher/RDR2 hybrid):
+    Reactive Story World (Skyrim/Elden Ring/Witcher/RDR2 hybrid):
     - Central town / safe zone with quest giver
     - 4 Points of Interest (POI) spread across the map
     - Dynamic enemy camps between POIs
@@ -366,7 +366,7 @@ def build_openworld_rpg(world):
     - Loot and ambient pickups throughout
     - Trigger volumes for narrative events
     """
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Open World RPG"):
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Reactive Story Mission"):
 
         # Central town / safe hub
         spawn_actor(DC_CLASSES["objective"], (0, 0, 0),
@@ -435,14 +435,14 @@ def build_openworld_rpg(world):
                        label=f"DC_AmbientLoot_{i}")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: Open World RPG framework built.")
+    unreal.log("DeltaCode: Reactive Story World framework built.")
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
 
 def run_danger_zone(mission_template: str):
     """
     Main entry point called from C++ bridge.
-    mission_template: 'extraction' | 'destiny' | 'fallout' | 'openworld'
+    mission_template: 'extraction' | 'arena' | 'questhub' | 'reactivestory'
     """
     world = get_editor_world()
     if world is None:
@@ -456,10 +456,10 @@ def run_danger_zone(mission_template: str):
 
     # Step 2: Build mission layout
     builders = {
-        "extraction": build_extraction,
-        "destiny":    build_destiny,
-        "fallout":    build_fallout,
-        "openworld":  build_openworld_rpg,
+        "extraction":    build_extraction,
+        "arena":         build_arena,
+        "questhub":      build_questhub,
+        "reactivestory": build_reactivestory,
     }
 
     builder = builders.get(mission_template)

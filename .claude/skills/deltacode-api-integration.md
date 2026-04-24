@@ -286,10 +286,10 @@ DANGER ZONE CAPABILITIES:
 - Generate the full actor hierarchy for a chosen mission template
 
 MISSION TEMPLATES AVAILABLE:
-- extraction: Extraction Shooter (loot zones, enemies, extraction trigger, boss)
-- destiny: Destiny-style Arena Mission (wave arenas, objective sequence, final boss)
-- fallout: Fallout-style Open World Mission (quest giver, objectives, ambient enemies, boss)
-- openworld: Open World RPG (town hub, POIs, enemy camps, dungeon, narrative triggers)
+- extraction: Extraction Zone (loot zones, enemies, extraction trigger, boss)
+- arena: Arena Gauntlet (wave arenas, objective sequence, final boss)
+- questhub: Quest Hub World (quest giver, objectives, ambient enemies, boss)
+- reactivestory: Reactive Story World (town hub, POIs, enemy camps, dungeon, narrative triggers)
 
 OUTPUT FORMAT: Produce clear step-by-step instructions and the Python dc_danger_zone.py
 run_danger_zone() call for the requested template. Include specific actor counts,

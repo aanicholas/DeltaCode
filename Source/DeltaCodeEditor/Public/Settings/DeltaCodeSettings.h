@@ -38,10 +38,10 @@ enum class EDCGenerationMode : uint8
 UENUM(BlueprintType)
 enum class EDCMissionTemplate : uint8
 {
-	Extraction  UMETA(DisplayName = "Extraction Shooter"),
-	Destiny     UMETA(DisplayName = "Destiny-style Arena Mission"),
-	Fallout     UMETA(DisplayName = "Fallout-style Open World"),
-	OpenWorld   UMETA(DisplayName = "Narrative Open World RPG"),
+	Extraction     UMETA(DisplayName = "Extraction Zone"),
+	Arena          UMETA(DisplayName = "Arena Gauntlet"),
+	QuestHub       UMETA(DisplayName = "Quest Hub World"),
+	ReactiveStory  UMETA(DisplayName = "Reactive Story World"),
 };
 
 /**

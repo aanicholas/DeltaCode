@@ -45,10 +45,10 @@ They are not optional — every response involving DeltaCode code must comply wi
 - Content root:     Content/DeltaCode/
 
 ## Mission Templates (Danger Zone)
-- `extraction`  — Extraction Shooter
-- `destiny`     — Destiny-style Arena Mission
-- `fallout`     — Fallout-style Open World Mission
-- `openworld`   — Narrative Open World RPG (Skyrim/Witcher/Elden Ring/RDR2 hybrid)
+- `extraction`    — Extraction Zone
+- `arena`         — Arena Gauntlet
+- `questhub`      — Quest Hub World
+- `reactivestory` — Reactive Story World
 
 ## Default Claude Model for API Calls
 `claude-sonnet-4-20250514`

@@ -38,10 +38,10 @@ _PRESERVE_CLASSES = (
 # Floor dimensions per template: (width_cm, depth_cm, center_x, center_y).
 # The engine Plane mesh is 100×100 cm at scale 1.
 _FLOOR_CONFIGS = {
-    "extraction": (8000,  3000,  2000,  0),
-    "destiny":    (12000, 3000,  4750,  0),
-    "fallout":    (12000, 12000, 0,     0),
-    "openworld":  (25000, 25000, 0,     0),
+    "extraction":    (8000,  3000,  2000,  0),
+    "arena":         (12000, 3000,  4750,  0),
+    "questhub":      (12000, 12000, 0,     0),
+    "reactivestory": (25000, 25000, 0,     0),
 }
 
 DC_CLASSES = {
@@ -211,7 +211,7 @@ def rebuild_navmesh():
 # ─── MISSION TEMPLATES ───────────────────────────────────────────────────────
 
 def build_extraction(_world):
-    """Extraction Shooter — 3 loot clusters, 8 enemy patrols, extraction boss."""
+    """Extraction Zone — 3 loot clusters, 8 enemy patrols, extraction boss."""
     with unreal.ScopedEditorTransaction("DeltaCode: Build Extraction Mission"):
         loot_positions = [(-2000, 0, 0), (0, 2000, 0), (2000, -1000, 0)]
         for i, base in enumerate(loot_positions):
@@ -237,9 +237,9 @@ def build_extraction(_world):
     rebuild_navmesh()
     unreal.log("DeltaCode: extraction mission built.")
 
-def build_destiny(_world):
-    """Destiny-style arena — three linear encounter arenas + boss room + reward."""
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Destiny Mission"):
+def build_arena(_world):
+    """Arena Gauntlet — three linear encounter arenas + boss room + reward."""
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Arena Mission"):
         z = _CHARACTER_Z_OFFSET
         for i, x in enumerate((0, 3000, 6000)):
             spawn_actor(DC_CLASSES["spawn_zone"], (x, 0,   0), label=f"DC_Arena{i+1}_SpawnZone")
@@ -256,11 +256,11 @@ def build_destiny(_world):
         spawn_actor(DC_CLASSES["pickup_base"],(boss_x + 500,  0,   0), label="DC_BossChestReward")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: destiny mission built.")
+    unreal.log("DeltaCode: arena mission built.")
 
-def build_fallout(_world):
-    """Fallout-style — quest hub, 3 objectives with guards, ambient roamers, final boss."""
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Fallout Mission"):
+def build_questhub(_world):
+    """Quest Hub World — quest hub, 3 objectives with guards, ambient roamers, final boss."""
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Quest Hub Mission"):
         z = _CHARACTER_Z_OFFSET
         spawn_actor(DC_CLASSES["objective"], (0, 0, 0), label="DC_QuestGiver_NPC")
 
@@ -277,11 +277,11 @@ def build_fallout(_world):
         spawn_actor(DC_CLASSES["boss_base"], (4000, -2000, 200 + z), label="DC_FinalObjectiveBoss")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: fallout mission built.")
+    unreal.log("DeltaCode: questhub mission built.")
 
-def build_openworld(_world):
-    """Open World RPG — town hub, 4 POIs with camps + loot, mid-map camps, dungeon boss."""
-    with unreal.ScopedEditorTransaction("DeltaCode: Build Open World RPG"):
+def build_reactivestory(_world):
+    """Reactive Story World — town hub, 4 POIs with camps + loot, mid-map camps, dungeon boss."""
+    with unreal.ScopedEditorTransaction("DeltaCode: Build Reactive Story Mission"):
         z = _CHARACTER_Z_OFFSET
         spawn_actor(DC_CLASSES["objective"], (0, 0, 0), label="DC_TownHub_QuestGiver")
         for i in range(3):
@@ -312,7 +312,7 @@ def build_openworld(_world):
             spawn_actor(DC_CLASSES["pickup_base"], pos, label=f"DC_AmbientLoot_{i}")
 
     rebuild_navmesh()
-    unreal.log("DeltaCode: open-world RPG framework built.")
+    unreal.log("DeltaCode: reactivestory mission built.")
 
 # ─── CORE BLUEPRINT CREATION ─────────────────────────────────────────────────
 
@@ -703,10 +703,10 @@ def create_core_blueprints(force_recreate=False):
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 _BUILDERS = {
-    "extraction": build_extraction,
-    "destiny":    build_destiny,
-    "fallout":    build_fallout,
-    "openworld":  build_openworld,
+    "extraction":    build_extraction,
+    "arena":         build_arena,
+    "questhub":      build_questhub,
+    "reactivestory": build_reactivestory,
 }
 
 def run_danger_zone(mission_template):

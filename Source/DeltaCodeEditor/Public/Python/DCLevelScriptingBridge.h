@@ -57,6 +57,6 @@ public:
 	/** Absolute path to dc_danger_zone.py inside the plugin's Content/Python folder. */
 	static FString GetScriptPath();
 
-	/** Short stable slug for a template — "extraction", "destiny", "fallout", "openworld". */
+	/** Short stable slug for a template — "extraction", "arena", "questhub", "reactivestory". */
 	static FString TemplateSlug(EDCMissionTemplate Template);
 };

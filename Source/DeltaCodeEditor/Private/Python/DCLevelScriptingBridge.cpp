@@ -57,11 +57,11 @@ FString FDCLevelScriptingBridge::TemplateSlug(EDCMissionTemplate Template)
 {
 	switch (Template)
 	{
-	case EDCMissionTemplate::Extraction: return TEXT("extraction");
-	case EDCMissionTemplate::Destiny:    return TEXT("destiny");
-	case EDCMissionTemplate::Fallout:    return TEXT("fallout");
-	case EDCMissionTemplate::OpenWorld:  return TEXT("openworld");
-	default:                             return TEXT("extraction");
+	case EDCMissionTemplate::Extraction:    return TEXT("extraction");
+	case EDCMissionTemplate::Arena:         return TEXT("arena");
+	case EDCMissionTemplate::QuestHub:      return TEXT("questhub");
+	case EDCMissionTemplate::ReactiveStory: return TEXT("reactivestory");
+	default:                                return TEXT("extraction");
 	}
 }
 
