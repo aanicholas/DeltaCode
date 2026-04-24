@@ -812,6 +812,36 @@ _BUILDERS = {
     "reactivestory": build_reactivestory,
 }
 
+def _spawn_default_lighting():
+    """Add DirectionalLight + SkyLight + SkyAtmosphere to a freshly created
+    sandbox level so PIE isn't pitch black. Called only on first-time
+    creation of L_DC_DangerZone; subsequent runs load the saved level which
+    already contains these actors."""
+    # Sun light at -45° pitch — standard "sun from above/behind" angle.
+    dir_light = _spawn_registered(
+        unreal.DirectionalLight,
+        unreal.Vector(0, 0, 500),
+        unreal.Rotator(-45, 0, 0))
+    if dir_light is not None:
+        dir_light.set_actor_label("DC_DirectionalLight")
+
+    # Ambient fill — samples the SkyAtmosphere to light unlit faces.
+    sky_light = _spawn_registered(
+        unreal.SkyLight,
+        unreal.Vector(0, 0, 500),
+        unreal.Rotator(0, 0, 0))
+    if sky_light is not None:
+        sky_light.set_actor_label("DC_SkyLight")
+
+    # Physically-based sky model — gives the SkyLight something to sample.
+    atmosphere = _spawn_registered(
+        unreal.SkyAtmosphere,
+        unreal.Vector(0, 0, 0),
+        unreal.Rotator(0, 0, 0))
+    if atmosphere is not None:
+        atmosphere.set_actor_label("DC_SkyAtmosphere")
+
+
 def run_danger_zone(mission_template):
     """Clear the level, then spawn the template's mission layout.
 
@@ -826,6 +856,10 @@ def run_danger_zone(mission_template):
 
     if not unreal.EditorAssetLibrary.does_asset_exist(_DC_DANGER_ZONE_LEVEL):
         les.new_level(_DC_DANGER_ZONE_LEVEL)
+        _spawn_default_lighting()
+        # Persist the lights so the next run's load_level branch sees them
+        # instead of an empty saved level.
+        les.save_current_level()
         unreal.log("DeltaCode: created L_DC_DangerZone")
     else:
         les.load_level(_DC_DANGER_ZONE_LEVEL)
