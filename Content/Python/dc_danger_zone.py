@@ -950,3 +950,5 @@ def run_danger_zone(mission_template):
     create_floor(mission_template)
     builder(world)
     unreal.log(f"DeltaCode: Danger Zone complete — template='{mission_template}'")
+    unreal.log("DeltaCode: Build complete. NOTE: If enemies are not moving, "
+               "save the level and restart the editor to fully initialize the NavMesh.")

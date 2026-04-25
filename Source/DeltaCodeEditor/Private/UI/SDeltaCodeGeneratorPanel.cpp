@@ -35,6 +35,8 @@
 #include "Widgets/Views/SListView.h"
 #include "Styling/AppStyle.h"
 #include "Misc/MessageDialog.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"
 
 #define LOCTEXT_NAMESPACE "SDeltaCodeGeneratorPanel"
 
@@ -576,10 +578,24 @@ FReply SDeltaCodeGeneratorPanel::OnBuildMissionClicked()
 		TemplateName);
 
 	FString Message;
-	FDCLevelScriptingBridge::ExecuteDangerZoneScript(Template, Message);
+	const bool bBuildSucceeded = FDCLevelScriptingBridge::ExecuteDangerZoneScript(Template, Message);
 
 	CurrentActivity = EDCPanelActivity::Idle;
 	StatusText = FText::FromString(Message);
+
+	// Toast on success — flags the UE5.5+ NavMesh-after-restart quirk where
+	// pathing data only finalises after the level is saved and the editor
+	// reloaded. Status bar message gets overwritten by the next interaction;
+	// the toast persists in the editor notification corner long enough for
+	// the user to read it.
+	if (bBuildSucceeded)
+	{
+		FNotificationInfo Info(LOCTEXT("BuildCompleteNavMeshNotice",
+			"Build complete. Save and restart editor if enemies are not moving (NavMesh initialization)."));
+		Info.ExpireDuration = 8.0f;
+		Info.bFireAndForget = true;
+		FSlateNotificationManager::Get().AddNotification(Info);
+	}
 	return FReply::Handled();
 }
 
