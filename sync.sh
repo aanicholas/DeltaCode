@@ -13,6 +13,7 @@ for DEST in "${DESTINATIONS[@]}"; do
     cp "$SOURCE_PYTHON/dc_danger_zone.py" "$DEST/dc_danger_zone.py"
     cp "$SOURCE_PYTHON/dc_create_ai_assets.py" "$DEST/dc_create_ai_assets.py"
     cp "$SOURCE_PYTHON/dc_find_ai_enemies.py" "$DEST/dc_find_ai_enemies.py"
+    cp "$SOURCE_PYTHON/dc_inspect_project.py" "$DEST/dc_inspect_project.py"
 done
 
 echo "DeltaCode Python files synced to ${#DESTINATIONS[@]} project(s)."
