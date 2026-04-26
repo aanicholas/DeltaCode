@@ -15,10 +15,11 @@
 # create_asset, save_asset, or any other mutation API.
 #
 # Entry points:
-#     dc_inspect_project()              # all categories
+#     dc_inspect_project()              # all categories, log to Output Log
 #     dc_inspect_project("player")      # one category
 #     dc_inspect_project("ai")          # alias for "enemy"
 #     dc_inspect_project("combat")      # alias for "damage"
+#     dc_inspect_project(silent=True)   # return dict, no log
 #
 # Default scan scope is /Game/ — engine and plugin content excluded.
 
@@ -159,7 +160,7 @@ def _asset_full_path(asset_data):
     return f"{asset_data.package_path}/{asset_data.asset_name}"
 
 
-# ─── REPORT FORMATTING ───────────────────────────────────────────────────────
+# ─── REPORT FORMATTING (LOG-ONLY HELPERS) ────────────────────────────────────
 
 def _hr_double():
     _out("=" * 50)
@@ -170,25 +171,21 @@ def _hr_section(title, count):
     _out(f"--- {title} ({count}) ---")
 
 
-def _item_bp(prefix, ad, parent=None, hint=None):
-    _out(f"  [{prefix}]  {ad.asset_name}")
-    _out(f"         Path:   {_asset_full_path(ad)}")
-    if parent:
-        _out(f"         Parent: {_short_class_name(parent)}")
-    if hint:
-        _out(f"         Hint:   {hint}")
+def _emit_full(row):
+    """Multi-line emit: header + path + parent + hints. For BP/native rows."""
+    _out(f"  [{row['kind']}]  {row['name']}")
+    _out(f"         Path:   {row['path']}")
+    if row.get('parent'):
+        _out(f"         Parent: {_short_class_name(row['parent'])}")
+    hints = row.get('hints') or []
+    if hints:
+        _out(f"         Hint:   {'; '.join(hints)}")
 
 
-def _item_native(prefix, class_path):
-    _out(f"  [{prefix}]  {_short_class_name(class_path)}")
-    _out(f"         Path:   {class_path}")
-
-
-def _item_asset(prefix, ad, *details):
-    line = f"  [{prefix}]  {ad.asset_name}"
-    if details:
-        line = f"{line} — {' / '.join(details)}"
-    _out(line)
+def _emit_compact(row):
+    """Single-line emit: just kind + name. For asset rows where the type
+    label and short name say everything."""
+    _out(f"  [{row['kind']}]  {row['name']}")
 
 
 # ─── CATEGORY: PLAYER CHARACTERS ─────────────────────────────────────────────
@@ -216,82 +213,111 @@ def _candidate_player_pawn_class_paths():
 
 
 def _scan_player_characters():
-    """List Character-derived BPs and native classes; flag likely player
+    """Character-derived BPs and native classes; flag likely player
     candidates (name contains 'Player' OR matches a GameMode's
-    DefaultPawnClass)."""
+    DefaultPawnClass). Returns list of row dicts."""
     candidates = _candidate_player_pawn_class_paths()
+    rows = []
 
-    bp_chars = []
     for ad in _filter_assets(_BLUEPRINT_CP):
         parent = _bp_parent_class_path(ad)
-        if parent and 'Character' in parent:
-            bp_chars.append((ad, parent))
-
-    native = _native_classes_derived_from(_CHARACTER_CP)
-
-    rows = []
-    for ad, parent in bp_chars:
-        hints = []
+        if not (parent and 'Character' in parent):
+            continue
         name = str(ad.asset_name)
-        if 'Player' in name:
-            hints.append("name contains 'Player'")
         bp_path = _asset_full_path(ad)
         gen_path = f"{bp_path}.{name}_C"
+        hints = []
+        if 'Player' in name:
+            hints.append("name contains 'Player'")
         if any(c == bp_path or c == gen_path or c.startswith(gen_path)
                for c in candidates):
             hints.append("matches GameMode.DefaultPawnClass")
-        hint = "; ".join(hints) if hints else None
-        rows.append(("BP", ad, parent, hint))
+        rows.append({
+            "kind":   "BP",
+            "name":   name,
+            "path":   bp_path,
+            "parent": parent,
+            "hints":  hints,
+        })
 
-    for cp in native:
-        rows.append(("C++", cp, None, None))
+    for cp in _native_classes_derived_from(_CHARACTER_CP):
+        rows.append({
+            "kind":   "C++",
+            "name":   _short_class_name(cp),
+            "path":   cp,
+            "parent": None,
+            "hints":  [],
+        })
 
+    return rows
+
+
+def _format_player_characters(rows):
     _hr_section("Player Characters", len(rows))
-    for kind, ad_or_path, parent, hint in rows:
-        if kind == "BP":
-            _item_bp(kind, ad_or_path, parent=parent, hint=hint)
-        else:
-            _item_native(kind, ad_or_path)
-    return len(rows)
+    for r in rows:
+        _emit_full(r)
 
 
 # ─── CATEGORY: ENEMY / NPC ───────────────────────────────────────────────────
 
 def _scan_enemy_npc():
     """AIController BPs + native subclasses, plus all BehaviorTrees and
-    BlackboardData assets in /Game/."""
+    BlackboardData assets in /Game/. Returns list of row dicts."""
     rows = []
 
     for ad in _filter_assets(_BLUEPRINT_CP):
         parent = _bp_parent_class_path(ad)
-        if parent and 'AIController' in parent:
-            rows.append(("BP-AI", "bp", ad, parent))
+        if not (parent and 'AIController' in parent):
+            continue
+        rows.append({
+            "kind":   "BP-AI",
+            "name":   str(ad.asset_name),
+            "path":   _asset_full_path(ad),
+            "parent": parent,
+            "hints":  [],
+        })
 
     for cp in _native_classes_derived_from(_AI_CONTROLLER_CP):
-        rows.append(("C++-AI", "native", cp, None))
+        rows.append({
+            "kind":   "C++-AI",
+            "name":   _short_class_name(cp),
+            "path":   cp,
+            "parent": None,
+            "hints":  [],
+        })
 
     for ad in _filter_assets(_BT_CP):
-        rows.append(("BT", "asset", ad, None))
+        rows.append({
+            "kind": "BT",
+            "name": str(ad.asset_name),
+            "path": _asset_full_path(ad),
+        })
 
     for ad in _filter_assets(_BB_CP):
-        rows.append(("BB", "asset", ad, None))
+        rows.append({
+            "kind": "BB",
+            "name": str(ad.asset_name),
+            "path": _asset_full_path(ad),
+        })
 
+    return rows
+
+
+def _format_enemy_npc(rows):
     _hr_section("Enemy / NPC", len(rows))
-    for prefix, kind, payload, parent in rows:
-        if kind == "bp":
-            _item_bp(prefix, payload, parent=parent)
-        elif kind == "native":
-            _item_native(prefix, payload)
+    for r in rows:
+        if r["kind"] in ("BP-AI", "C++-AI"):
+            _emit_full(r)
         else:
-            _item_asset(prefix, payload)
-    return len(rows)
+            _emit_compact(r)
 
 
 # ─── CATEGORY: DAMAGE SYSTEM ─────────────────────────────────────────────────
 
 def _scan_damage_system():
     """Heuristic: BP interfaces or BPs with 'Damage'/'Damageable' in name;
-    BPs with 'Health' in name (often health components or health BPs)."""
+    BPs with 'Health' in name (often health components or health BPs).
+    Returns list of row dicts."""
     rows = []
     seen = set()
 
@@ -308,97 +334,133 @@ def _scan_damage_system():
         parent = _bp_parent_class_path(ad)
         bptype = _bp_type(ad)
         if bptype == 'BPTYPE_Interface' or (parent and parent.endswith('.Interface')):
-            prefix = "BPI"
+            kind = "BPI"
         elif parent and 'Component' in parent:
-            prefix = "Cmp"
+            kind = "Cmp"
         else:
-            prefix = "BP"
-        rows.append((prefix, ad, parent))
+            kind = "BP"
+        rows.append({
+            "kind":   kind,
+            "name":   name,
+            "path":   _asset_full_path(ad),
+            "parent": parent,
+            "hints":  [],
+        })
 
+    return rows
+
+
+def _format_damage_system(rows):
     _hr_section("Damage System", len(rows))
-    for prefix, ad, parent in rows:
-        _item_bp(prefix, ad, parent=parent)
-    return len(rows)
+    for r in rows:
+        _emit_full(r)
 
 
 # ─── CATEGORY: ANIMATION ─────────────────────────────────────────────────────
 
 def _scan_animation():
-    """AnimMontages, AnimBlueprints, AnimSequences in /Game/."""
-    montages  = _filter_assets(_ANIM_MONTAGE_CP)
-    anim_bps  = _filter_assets(_ANIM_BP_CP)
-    sequences = _filter_assets(_ANIM_SEQ_CP)
-    total = len(montages) + len(anim_bps) + len(sequences)
+    """AnimMontages, AnimBlueprints, AnimSequences in /Game/. Returns list
+    of row dicts."""
+    rows = []
+    for ad in _filter_assets(_ANIM_MONTAGE_CP):
+        rows.append({"kind": "Montage",  "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for ad in _filter_assets(_ANIM_BP_CP):
+        rows.append({"kind": "AnimBP",   "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for ad in _filter_assets(_ANIM_SEQ_CP):
+        rows.append({"kind": "Sequence", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    return rows
 
-    _hr_section("Animation", total)
-    for ad in montages:
-        _item_asset("Montage", ad)
-    for ad in anim_bps:
-        _item_asset("AnimBP", ad)
-    for ad in sequences:
-        _item_asset("Sequence", ad)
-    return total
+
+def _format_animation(rows):
+    _hr_section("Animation", len(rows))
+    for r in rows:
+        _emit_compact(r)
 
 
 # ─── CATEGORY: INPUT ─────────────────────────────────────────────────────────
 
 def _scan_input():
-    """Enhanced Input — InputActions and InputMappingContexts."""
-    actions  = _filter_assets(_INPUT_ACTION_CP)
-    contexts = _filter_assets(_IMC_CP)
-    total = len(actions) + len(contexts)
+    """Enhanced Input — InputActions and InputMappingContexts. Returns list
+    of row dicts."""
+    rows = []
+    for ad in _filter_assets(_INPUT_ACTION_CP):
+        rows.append({"kind": "IA",  "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for ad in _filter_assets(_IMC_CP):
+        rows.append({"kind": "IMC", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    return rows
 
-    _hr_section("Input", total)
-    for ad in actions:
-        _item_asset("IA", ad)
-    for ad in contexts:
-        _item_asset("IMC", ad)
-    return total
+
+def _format_input(rows):
+    _hr_section("Input", len(rows))
+    for r in rows:
+        _emit_compact(r)
 
 
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
+# (scan_fn, format_fn) per category. Scans return list[dict]; formats log them.
 _CATEGORY_FN = {
-    "player":    _scan_player_characters,
-    "enemy":     _scan_enemy_npc,
-    "damage":    _scan_damage_system,
-    "animation": _scan_animation,
-    "input":     _scan_input,
+    "player":    (_scan_player_characters, _format_player_characters),
+    "enemy":     (_scan_enemy_npc,         _format_enemy_npc),
+    "damage":    (_scan_damage_system,     _format_damage_system),
+    "animation": (_scan_animation,         _format_animation),
+    "input":     (_scan_input,             _format_input),
 }
 
 
-def dc_inspect_project(topic=None):
-    """Read-only scan of the current UE project. Logs a structured report
-    to the Output Log.
+def dc_inspect_project(topic=None, silent=False):
+    """Read-only scan of the current UE project.
 
     topic — None or 'all' runs every category. Single-category aliases:
         'player', 'enemy'/'ai', 'damage'/'combat', 'animation', 'input'.
+
+    silent — if False (default), logs a structured report to the Output Log
+        and returns None. If True, suppresses logging and returns a dict
+        keyed by category name with list[dict] values — for programmatic
+        consumption (e.g. Danger Zone deciding what assets to reuse).
+
+    Dict shape (silent=True): {category: [{"kind": str, "name": str,
+        "path": str, "parent": Optional[str], "hints": list[str]}, ...]}.
+        'parent' and 'hints' are present on BP/native rows; absent on
+        plain asset rows (BT/BB/Montage/AnimBP/Sequence/IA/IMC).
     """
     if topic is not None and topic not in _TOPICS_TO_CATEGORIES:
         valid = sorted(t for t in _TOPICS_TO_CATEGORIES if t is not None)
-        _log(f"unknown topic '{topic}'. Valid: {', '.join(valid)}")
-        return
+        if not silent:
+            _log(f"unknown topic '{topic}'. Valid: {', '.join(valid)}")
+        return {} if silent else None
 
     cats = _TOPICS_TO_CATEGORIES[topic]
+    result = {}
+    for cat in cats:
+        scan_fn, _ = _CATEGORY_FN[cat]
+        try:
+            result[cat] = scan_fn()
+        except Exception as e:
+            _log(f"WARN: category '{cat}' failed — {e}")
+            result[cat] = []
+
+    if silent:
+        return result
+
     _hr_double()
     _out("DeltaCode Project Inspector")
     _hr_double()
-
-    grand_total = 0
     for cat in cats:
-        fn = _CATEGORY_FN.get(cat)
-        if fn is None:
-            continue
-        try:
-            grand_total += fn()
-        except Exception as e:
-            _log(f"WARN: category '{cat}' failed — {e}")
-
+        _, format_fn = _CATEGORY_FN[cat]
+        format_fn(result[cat])
     _out("")
     _hr_double()
+    total = sum(len(v) for v in result.values())
     label = "category" if len(cats) == 1 else "categories"
-    _out(f"Total: {grand_total} items across {len(cats)} {label}.")
+    _out(f"Total: {total} items across {len(cats)} {label}.")
     _hr_double()
+    return None
 
 
 if __name__ == "__main__":
