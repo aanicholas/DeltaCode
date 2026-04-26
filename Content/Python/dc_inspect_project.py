@@ -212,10 +212,11 @@ def _candidate_player_pawn_class_paths():
     return pawns
 
 
-def _scan_player_characters():
-    """Character-derived BPs and native classes; flag likely player
-    candidates (name contains 'Player' OR matches a GameMode's
-    DefaultPawnClass). Returns list of row dicts."""
+def _all_character_rows():
+    """All Character-derived BPs and native classes in /Game/, with the
+    player-hint annotations populated. Shared by _scan_player_characters
+    (filters to hinted) and _scan_enemy_npc (filters to non-hinted) so
+    the registry walk runs once."""
     candidates = _candidate_player_pawn_class_paths()
     rows = []
 
@@ -252,6 +253,12 @@ def _scan_player_characters():
     return rows
 
 
+def _scan_player_characters():
+    """Character subclasses WITH at least one player hint (name contains
+    'Player' OR matches GameMode.DefaultPawnClass). Returns list of rows."""
+    return [r for r in _all_character_rows() if r["hints"]]
+
+
 def _format_player_characters(rows):
     _hr_section("Player Characters", len(rows))
     for r in rows:
@@ -261,9 +268,15 @@ def _format_player_characters(rows):
 # ─── CATEGORY: ENEMY / NPC ───────────────────────────────────────────────────
 
 def _scan_enemy_npc():
-    """AIController BPs + native subclasses, plus all BehaviorTrees and
-    BlackboardData assets in /Game/. Returns list of row dicts."""
-    rows = []
+    """Character subclasses WITHOUT player hints (likely enemies/NPCs),
+    plus AIController BPs/natives, plus BehaviorTrees and BlackboardData
+    in /Game/. Returns list of row dicts.
+
+    Character subclasses appear here when the player heuristic doesn't
+    match — neutral NPCs and ambiguously-named pawns will land here too.
+    Caller-side identification (e.g. by exact name match) is the next
+    layer of disambiguation."""
+    rows = [r for r in _all_character_rows() if not r["hints"]]
 
     for ad in _filter_assets(_BLUEPRINT_CP):
         parent = _bp_parent_class_path(ad)
@@ -306,7 +319,10 @@ def _scan_enemy_npc():
 def _format_enemy_npc(rows):
     _hr_section("Enemy / NPC", len(rows))
     for r in rows:
-        if r["kind"] in ("BP-AI", "C++-AI"):
+        # Character subclasses (BP/C++) and AIController subclasses get the
+        # full multi-line layout so the parent class shows. BTs/BBs are
+        # plain assets — single-line is enough.
+        if r["kind"] in ("BP", "C++", "BP-AI", "C++-AI"):
             _emit_full(r)
         else:
             _emit_compact(r)

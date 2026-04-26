@@ -49,8 +49,9 @@ DC_CLASSES = {
     "pickup_base":     "/Game/DeltaCode/Core/B_DC_PickupBase.B_DC_PickupBase_C",
     "objective":       "/Game/DeltaCode/Core/B_DC_ObjectiveBase.B_DC_ObjectiveBase_C",
     # Combat-variant template enemy — ships pre-wired with mesh, anim,
-    # AIController, and BehaviorTree. _refresh_dynamic_classes() may override
-    # boss_base at run_danger_zone start if a dedicated boss variant exists.
+    # AIController, and BehaviorTree. _apply_scan_to_dc_classes() may
+    # override boss_base at run_danger_zone start if a dedicated boss
+    # variant exists in the scan results.
     "enemy_base":      "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy.BP_CombatEnemy_C",
     "boss_base":       "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy.BP_CombatEnemy_C",
     "spawn_zone":      "/Game/DeltaCode/Core/B_DC_SpawnZone.B_DC_SpawnZone_C",
@@ -513,44 +514,56 @@ def _inspect_preequipped_once(actor, class_path):
         unreal.log_warning(f"DeltaCode[pre-equipped] introspect failed — {e}")
 
 
-def _refresh_dynamic_classes():
-    """Probe /Game/Variant_Combat/Blueprints/AI/ at build time and route
-    DC_CLASSES accordingly.
+def _apply_scan_to_dc_classes(scan):
+    """Use dc_inspect_project results to route DC_CLASSES['enemy_base'] and
+    ['boss_base']. Replaces the older path-specific Variant_Combat probe —
+    the inspector returns all Character subclasses across /Game/, so we
+    can find BP_CombatEnemy and any Boss variant by name regardless of
+    where they live in the project.
 
-    If the Variant_Combat template is present, use BP_CombatEnemy (the stock
-    default) and override boss_base with a Boss variant when one ships.
-    If Variant_Combat is missing (blank project), fall back to the plugin's
-    own B_DC_EnemyBase so spawns produce real Character actors instead of
-    placeholder cubes. B_DC_EnemyBase's BehaviorTree still needs manual
-    wiring — that's a separate concern from routing.
+    scan — dict from dc_inspect_project(silent=True). Empty dict on failure
+    triggers the fallback path.
     """
     fallback_path = "/Game/DeltaCode/Core/B_DC_EnemyBase.B_DC_EnemyBase_C"
-    try:
-        registry = unreal.AssetRegistryHelpers.get_asset_registry()
-        assets = registry.get_assets_by_path(
-            "/Game/Variant_Combat/Blueprints/AI", recursive=True)
-    except Exception as e:
-        unreal.log_warning(f"DeltaCode: AI-path probe failed — {e}")
-        assets = None
+    enemy_rows = scan.get("enemy", [])
 
-    if not assets:
-        unreal.log("DeltaCode: /Game/Variant_Combat/Blueprints/AI — empty or "
-                   "missing. Falling back to B_DC_EnemyBase for enemy/boss.")
+    # Find BP_CombatEnemy by exact name match in the enemy/character rows.
+    combat = next(
+        (r for r in enemy_rows
+         if r.get("kind") in ("BP", "BP-AI") and r.get("name") == "BP_CombatEnemy"),
+        None)
+    if combat:
+        cls_path = f"{combat['path']}.{combat['name']}_C"
+        DC_CLASSES["enemy_base"] = cls_path
+        DC_CLASSES["boss_base"]  = cls_path
+        unreal.log(f"DeltaCode: enemy_base/boss_base → {cls_path}")
+    else:
         DC_CLASSES["enemy_base"] = fallback_path
-        DC_CLASSES["boss_base"] = fallback_path
-        return
+        DC_CLASSES["boss_base"]  = fallback_path
+        unreal.log("DeltaCode: BP_CombatEnemy not found — falling back to "
+                   "B_DC_EnemyBase for enemy/boss.")
 
-    for a in assets:
-        name = str(a.asset_name)
-        pkg  = str(a.package_name)
-        if "Spawner" in name:
-            unreal.log(f"DeltaCode: ignoring spawner BP {pkg} "
-                       f"(would not spawn as a pawn).")
+    # Override boss with a dedicated Boss variant if one exists. Spawner BPs
+    # are skipped (they'd place a spawner actor instead of a pawn).
+    for r in enemy_rows:
+        if r.get("kind") not in ("BP", "BP-AI"):
             continue
-        if "Boss" in name:
-            boss_path = f"{pkg}.{name}_C"
-            DC_CLASSES["boss_base"] = boss_path
-            unreal.log(f"DeltaCode: boss_base overridden → {boss_path}")
+        name = r.get("name", "")
+        if "Boss" in name and "Spawner" not in name:
+            cls_path = f"{r['path']}.{name}_C"
+            DC_CLASSES["boss_base"] = cls_path
+            unreal.log(f"DeltaCode: boss_base overridden → {cls_path}")
+            break
+
+    # Combat montage detection — log only for v1; no DC_CLASSES update yet.
+    montages = [r for r in scan.get("animation", []) if r.get("kind") == "Montage"]
+    combat_montages = [m for m in montages
+                       if "Combat" in m.get("name", "") or "Attack" in m.get("name", "")]
+    if combat_montages:
+        names = ", ".join(m["name"] for m in combat_montages[:5])
+        more = f" (+{len(combat_montages) - 5} more)" if len(combat_montages) > 5 else ""
+        unreal.log(f"DeltaCode: combat montages found ({len(combat_montages)}): "
+                   f"{names}{more}")
 
 
 def _resolve_character_z_offset():
@@ -923,10 +936,23 @@ def run_danger_zone(mission_template):
 
     unreal.log(f"DeltaCode: Danger Zone start — template='{mission_template}'")
 
-    # Overlay DC_CLASSES from the template's AI folder (boss variant detection,
-    # spawner disambiguation) and then sync _CHARACTER_Z_OFFSET to whatever
-    # enemy class we ended up with. Order matters: refresh first, then Z.
-    _refresh_dynamic_classes()
+    # Project scan — informs DC_CLASSES routing and surfaces what content
+    # the project ships with. importlib.reload keeps iterative edits hot
+    # during development. Failure falls back to B_DC_EnemyBase routing.
+    try:
+        import importlib
+        import dc_inspect_project
+        importlib.reload(dc_inspect_project)
+        scan = dc_inspect_project.dc_inspect_project(topic="all", silent=True)
+        unreal.log(f"DeltaCode: project scan complete — found "
+                   f"{len(scan.get('player', []))} player chars, "
+                   f"{len(scan.get('enemy', []))} enemy classes, "
+                   f"{len(scan.get('animation', []))} animations")
+    except Exception as e:
+        unreal.log_warning(f"DeltaCode: project scan failed — {e}")
+        scan = {}
+
+    _apply_scan_to_dc_classes(scan)
     _resolve_character_z_offset()
 
     # force_recreate=False: BP recreation with mesh is no longer needed since
