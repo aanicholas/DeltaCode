@@ -26,8 +26,24 @@
 
 namespace DCLevelScriptingBridgePrivate
 {
-	static const TCHAR* PluginName = TEXT("DeltaCode");
-	static const TCHAR* ScriptRelativePath = TEXT("Content/Python/dc_danger_zone.py");
+	static const TCHAR* PluginName             = TEXT("DeltaCode");
+	static const TCHAR* DangerZoneScriptPath   = TEXT("Content/Python/dc_danger_zone.py");
+	static const TCHAR* InspectorScriptPath    = TEXT("Content/Python/dc_inspect_project.py");
+
+	/** Resolve a path inside the plugin Content/ folder to its absolute form. */
+	static FString ResolvePluginScript(const TCHAR* RelativePath)
+	{
+		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
+		if (!Plugin.IsValid())
+		{
+			// Fallback — uncommon, but if the plugin descriptor can't be resolved we
+			// still want a best-guess path so the error message points somewhere useful.
+			return FPaths::ConvertRelativePathToFull(
+				FPaths::Combine(FPaths::ProjectPluginsDir(), PluginName, RelativePath));
+		}
+		return FPaths::ConvertRelativePathToFull(
+			FPaths::Combine(Plugin->GetBaseDir(), RelativePath));
+	}
 
 	/**
 	 * Build the one-shot Python statement that imports dc_danger_zone via importlib
@@ -44,6 +60,19 @@ namespace DCLevelScriptingBridgePrivate
 			     "_dc_mod.run_danger_zone('%s')"),
 			*AbsoluteScriptPath,
 			*TemplateSlug);
+	}
+
+	/** Same shape as BuildCommand but invokes dc_inspect_project(<topic>). */
+	static FString BuildInspectorCommand(const FString& AbsoluteScriptPath, const FString& TopicSlug)
+	{
+		return FString::Printf(
+			TEXT("import importlib.util; "
+			     "_dc_spec = importlib.util.spec_from_file_location('dc_inspect_project', r'%s'); "
+			     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
+			     "_dc_spec.loader.exec_module(_dc_mod); "
+			     "_dc_mod.dc_inspect_project('%s')"),
+			*AbsoluteScriptPath,
+			*TopicSlug);
 	}
 }
 
@@ -68,17 +97,21 @@ FString FDCLevelScriptingBridge::TemplateSlug(EDCMissionTemplate Template)
 FString FDCLevelScriptingBridge::GetScriptPath()
 {
 	using namespace DCLevelScriptingBridgePrivate;
+	return ResolvePluginScript(DangerZoneScriptPath);
+}
 
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
-	if (!Plugin.IsValid())
+FString FDCLevelScriptingBridge::InspectorTopicSlug(EDCInspectorTopic Topic)
+{
+	switch (Topic)
 	{
-		// Fallback — uncommon, but if the plugin descriptor can't be resolved we
-		// still want a best-guess path so the error message points somewhere useful.
-		return FPaths::ConvertRelativePathToFull(
-			FPaths::Combine(FPaths::ProjectPluginsDir(), PluginName, ScriptRelativePath));
+	case EDCInspectorTopic::All:       return TEXT("all");
+	case EDCInspectorTopic::Player:    return TEXT("player");
+	case EDCInspectorTopic::Enemy:     return TEXT("enemy");
+	case EDCInspectorTopic::Combat:    return TEXT("combat");
+	case EDCInspectorTopic::Animation: return TEXT("animation");
+	case EDCInspectorTopic::Input:     return TEXT("input");
+	default:                           return TEXT("all");
 	}
-	return FPaths::ConvertRelativePathToFull(
-		FPaths::Combine(Plugin->GetBaseDir(), ScriptRelativePath));
 }
 
 bool FDCLevelScriptingBridge::CreateCoreAssets(FString& OutMessage)
@@ -173,6 +206,53 @@ bool FDCLevelScriptingBridge::ExecuteDangerZoneScript(EDCMissionTemplate Templat
 			TEXT("Danger Zone script raised an error. Check Output Log (LogPython) for the traceback. template=%s"),
 			*Slug);
 		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[DangerZone] %s"), *OutMessage);
+	}
+
+	return bOk;
+}
+
+bool FDCLevelScriptingBridge::ExecuteProjectInspector(EDCInspectorTopic Topic, FString& OutMessage)
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	if (!IsPythonAvailable())
+	{
+		OutMessage = TEXT(
+			"Python Script Plugin is not available. Enable it under "
+			"Edit > Plugins > Scripting > Python Editor Script Plugin, then restart the editor.");
+		UE_LOG(LogDeltaCodeEditor, Warning, TEXT("[Inspect] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString ScriptPath = ResolvePluginScript(InspectorScriptPath);
+
+	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*ScriptPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("Project inspector script not found at %s."), *ScriptPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[Inspect] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString Slug = InspectorTopicSlug(Topic);
+	const FString Command = BuildInspectorCommand(ScriptPath, Slug);
+
+	UE_LOG(LogDeltaCodeEditor, Log,
+		TEXT("[Inspect] running topic='%s' script='%s'"), *Slug, *ScriptPath);
+
+	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+
+	if (bOk)
+	{
+		OutMessage = FString::Printf(
+			TEXT("Project inspector complete: topic=%s. See Output Log for the report."), *Slug);
+	}
+	else
+	{
+		OutMessage = FString::Printf(
+			TEXT("Project inspector raised an error. Check Output Log (LogPython) for the traceback. topic=%s"),
+			*Slug);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[Inspect] %s"), *OutMessage);
 	}
 
 	return bOk;

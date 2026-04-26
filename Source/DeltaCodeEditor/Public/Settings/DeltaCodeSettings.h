@@ -44,6 +44,19 @@ enum class EDCMissionTemplate : uint8
 	ReactiveStory  UMETA(DisplayName = "Reactive Story World"),
 };
 
+// ─── Project inspector topics (Safe Mode read-only scanner) ──────────────────
+
+UENUM(BlueprintType)
+enum class EDCInspectorTopic : uint8
+{
+	All        UMETA(DisplayName = "All"),
+	Player     UMETA(DisplayName = "Player"),
+	Enemy      UMETA(DisplayName = "Enemy"),
+	Combat     UMETA(DisplayName = "Combat / Damage"),
+	Animation  UMETA(DisplayName = "Animation"),
+	Input      UMETA(DisplayName = "Input"),
+};
+
 /**
  * Per-user settings for DeltaCode.
  *

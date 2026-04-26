@@ -54,9 +54,23 @@ public:
 	 */
 	static bool CreateCoreAssets(FString& OutMessage);
 
+	/**
+	 * Run dc_inspect_project.py with the given topic. Read-only scan — never
+	 * mutates assets. Output lands in the Output Log via unreal.log calls
+	 * inside the Python script. Safe to call from either mode.
+	 *
+	 * @param Topic          Which category set to scan.
+	 * @param OutMessage     Human-readable result line for the panel status bar.
+	 * @return               True if the script executed without raising.
+	 */
+	static bool ExecuteProjectInspector(EDCInspectorTopic Topic, FString& OutMessage);
+
 	/** Absolute path to dc_danger_zone.py inside the plugin's Content/Python folder. */
 	static FString GetScriptPath();
 
 	/** Short stable slug for a template — "extraction", "arena", "questhub", "reactivestory". */
 	static FString TemplateSlug(EDCMissionTemplate Template);
+
+	/** Short stable slug for an inspector topic — "all", "player", "enemy", "combat", "animation", "input". */
+	static FString InspectorTopicSlug(EDCInspectorTopic Topic);
 };

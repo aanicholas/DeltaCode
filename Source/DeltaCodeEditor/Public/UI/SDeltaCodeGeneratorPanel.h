@@ -79,15 +79,20 @@ private:
 
 	TArray<TSharedPtr<EDCGenerationMode>> ModeOptions;
 	TArray<TSharedPtr<EDCMissionTemplate>> TemplateOptions;
+	TArray<TSharedPtr<EDCInspectorTopic>> InspectorTopicOptions;
 	TSharedPtr<EDCGenerationMode> SelectedMode;
 	TSharedPtr<EDCMissionTemplate> SelectedTemplate;
+	TSharedPtr<EDCInspectorTopic> SelectedInspectorTopic;
 
 	TSharedRef<SWidget> MakeModeOption(TSharedPtr<EDCGenerationMode> Option);
 	TSharedRef<SWidget> MakeTemplateOption(TSharedPtr<EDCMissionTemplate> Option);
+	TSharedRef<SWidget> MakeInspectorTopicOption(TSharedPtr<EDCInspectorTopic> Option);
 	FText GetCurrentModeText() const;
 	FText GetCurrentTemplateText() const;
+	FText GetCurrentInspectorTopicText() const;
 	void OnModeChanged(TSharedPtr<EDCGenerationMode> NewMode, ESelectInfo::Type Info);
 	void OnTemplateChanged(TSharedPtr<EDCMissionTemplate> NewTemplate, ESelectInfo::Type Info);
+	void OnInspectorTopicChanged(TSharedPtr<EDCInspectorTopic> NewTopic, ESelectInfo::Type Info);
 
 	// ── Prompt + response widgets ──────────────────────────────────────────
 
@@ -117,6 +122,9 @@ private:
 	/** Creates core Blueprint assets under /Game/DeltaCode/Core/ via Python. */
 	FReply OnCreateCoreAssetsClicked();
 
+	/** Safe Mode "Run Inspector" — read-only project scan via Python bridge. */
+	FReply OnRunInspectorClicked();
+
 	bool IsBusy() const;
 	bool IsGenerateEnabled() const;
 	bool IsBuildMissionEnabled() const;
@@ -124,6 +132,7 @@ private:
 	EVisibility GetCancelVisibility() const;
 	EVisibility GetTemplateRowVisibility() const;
 	EVisibility GetDangerWarningVisibility() const;
+	EVisibility GetInspectorRowVisibility() const;
 	EVisibility GetSpinnerVisibility() const;
 
 	FText GetStatusText() const       { return StatusText; }

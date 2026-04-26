@@ -86,14 +86,22 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::QuestHub));
 	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::ReactiveStory));
 
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::All));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Player));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Enemy));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Combat));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Animation));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Input));
+
 	const UDeltaCodeSettings* Settings = UDeltaCodeSettings::Get();
 	const EDCGenerationMode InitialMode =
 		Settings ? Settings->DefaultGenerationMode : EDCGenerationMode::Safe;
 	const EDCMissionTemplate InitialTemplate =
 		Settings ? Settings->DefaultMissionTemplate : EDCMissionTemplate::Extraction;
 
-	SelectedMode     = DCPanelPrivate::FindOption(ModeOptions, InitialMode);
-	SelectedTemplate = DCPanelPrivate::FindOption(TemplateOptions, InitialTemplate);
+	SelectedMode            = DCPanelPrivate::FindOption(ModeOptions, InitialMode);
+	SelectedTemplate        = DCPanelPrivate::FindOption(TemplateOptions, InitialTemplate);
+	SelectedInspectorTopic  = InspectorTopicOptions[0];
 
 	StatusText = (InitialMode == EDCGenerationMode::Danger)
 		? LOCTEXT("StatusIdleDanger", "Select a template and hit Build Mission.")
@@ -166,6 +174,69 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 						"Destructive actions always prompt for confirmation before running."))
 					.AutoWrapText(true)
 					.ColorAndOpacity(FLinearColor(1.0f, 0.714f, 0.0f))
+				]
+			]
+
+			// ── Inspect Project (Safe Mode) ───────────────────────────────
+			+ SVerticalBox::Slot()
+			.AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+			[
+				SNew(SBorder)
+				.BorderImage(FAppStyle::GetBrush("ToolPanel.DarkGroupBorder"))
+				.Padding(6.0f)
+				.Visibility(this, &SDeltaCodeGeneratorPanel::GetInspectorRowVisibility)
+				[
+					SNew(SVerticalBox)
+
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("InspectProjectLabel", "Inspect Project"))
+					]
+
+					+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("InspectProjectHint",
+							"Read-only — scans the project content and reports player chars, "
+							"enemies, damage system, animation, and input assets to the Output Log."))
+						.AutoWrapText(true)
+						.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f))
+					]
+
+					+ SVerticalBox::Slot().AutoHeight()
+					[
+						SNew(SHorizontalBox)
+
+						+ SHorizontalBox::Slot()
+						.VAlign(VAlign_Center).AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("InspectorTopicLabel", "Topic:"))
+						]
+
+						+ SHorizontalBox::Slot()
+						.VAlign(VAlign_Center).AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+						[
+							SNew(SComboBox<TSharedPtr<EDCInspectorTopic>>)
+							.OptionsSource(&InspectorTopicOptions)
+							.InitiallySelectedItem(SelectedInspectorTopic)
+							.OnGenerateWidget(this, &SDeltaCodeGeneratorPanel::MakeInspectorTopicOption)
+							.OnSelectionChanged(this, &SDeltaCodeGeneratorPanel::OnInspectorTopicChanged)
+							[ SNew(STextBlock).Text(this, &SDeltaCodeGeneratorPanel::GetCurrentInspectorTopicText) ]
+						]
+
+						+ SHorizontalBox::Slot()
+						.VAlign(VAlign_Center).AutoWidth()
+						[
+							SNew(SButton)
+							.Text(LOCTEXT("RunInspectorBtn", "Run Inspector"))
+							.ToolTipText(LOCTEXT("RunInspectorTooltip",
+								"Scan the project for the selected topic. Read-only — no assets are "
+								"modified. Results appear in the Output Log."))
+							.OnClicked(this, &SDeltaCodeGeneratorPanel::OnRunInspectorClicked)
+						]
+					]
 				]
 			]
 
@@ -374,6 +445,32 @@ void SDeltaCodeGeneratorPanel::OnTemplateChanged(TSharedPtr<EDCMissionTemplate> 
 	SelectedTemplate = NewTemplate;
 }
 
+TSharedRef<SWidget> SDeltaCodeGeneratorPanel::MakeInspectorTopicOption(TSharedPtr<EDCInspectorTopic> Option)
+{
+	const EDCInspectorTopic Value = Option.IsValid() ? *Option : EDCInspectorTopic::All;
+	if (const UEnum* EnumPtr = StaticEnum<EDCInspectorTopic>())
+	{
+		return SNew(STextBlock).Text(EnumPtr->GetDisplayNameTextByValue((int64)Value));
+	}
+	return SNew(STextBlock).Text(LOCTEXT("InspectorTopicAllFallback", "All"));
+}
+
+FText SDeltaCodeGeneratorPanel::GetCurrentInspectorTopicText() const
+{
+	const EDCInspectorTopic Value = SelectedInspectorTopic.IsValid()
+		? *SelectedInspectorTopic : EDCInspectorTopic::All;
+	if (const UEnum* EnumPtr = StaticEnum<EDCInspectorTopic>())
+	{
+		return EnumPtr->GetDisplayNameTextByValue((int64)Value);
+	}
+	return LOCTEXT("InspectorTopicAllFallback", "All");
+}
+
+void SDeltaCodeGeneratorPanel::OnInspectorTopicChanged(TSharedPtr<EDCInspectorTopic> NewTopic, ESelectInfo::Type)
+{
+	SelectedInspectorTopic = NewTopic;
+}
+
 // ─── Visibility / enabled state ──────────────────────────────────────────────
 
 bool SDeltaCodeGeneratorPanel::IsBusy() const
@@ -418,6 +515,12 @@ EVisibility SDeltaCodeGeneratorPanel::GetDangerWarningVisibility() const
 {
 	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
 	return Mode == EDCGenerationMode::Danger ? EVisibility::Visible : EVisibility::Collapsed;
+}
+
+EVisibility SDeltaCodeGeneratorPanel::GetInspectorRowVisibility() const
+{
+	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
+	return Mode == EDCGenerationMode::Safe ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
 EVisibility SDeltaCodeGeneratorPanel::GetSpinnerVisibility() const
@@ -610,6 +713,23 @@ FReply SDeltaCodeGeneratorPanel::OnCreateCoreAssetsClicked()
 	FDCLevelScriptingBridge::CreateCoreAssets(Message);
 
 	CurrentActivity = EDCPanelActivity::Idle;
+	StatusText = FText::FromString(Message);
+	return FReply::Handled();
+}
+
+FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
+{
+	// Inspector is synchronous and quick; per design we skip activity gating
+	// and don't introduce a new EDCPanelActivity value for it. Output goes
+	// to the Output Log via unreal.log inside the Python script.
+	const EDCInspectorTopic Topic = SelectedInspectorTopic.IsValid()
+		? *SelectedInspectorTopic : EDCInspectorTopic::All;
+
+	StatusText = LOCTEXT("InspectorRunning", "Running project inspector\u2026");
+
+	FString Message;
+	FDCLevelScriptingBridge::ExecuteProjectInspector(Topic, Message);
+
 	StatusText = FText::FromString(Message);
 	return FReply::Handled();
 }
