@@ -104,8 +104,8 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 	SelectedInspectorTopic  = InspectorTopicOptions[0];
 
 	StatusText = (InitialMode == EDCGenerationMode::Danger)
-		? LOCTEXT("StatusIdleDanger", "Select a template and hit Build Mission.")
-		: LOCTEXT("StatusIdleSafe", "Idle. Enter a prompt and hit Generate.");
+		? LOCTEXT("StatusIdleDanger", "Danger Zone: Select a template and hit Build Mission.")
+		: LOCTEXT("StatusIdleSafe", "Safe Mode: Ask a question or describe what to generate.");
 
 	ChildSlot
 	[
@@ -442,8 +442,8 @@ void SDeltaCodeGeneratorPanel::OnModeChanged(TSharedPtr<EDCGenerationMode> NewMo
 
 	const EDCGenerationMode Mode = NewMode.IsValid() ? *NewMode : EDCGenerationMode::Safe;
 	StatusText = (Mode == EDCGenerationMode::Danger)
-		? LOCTEXT("StatusIdleDanger", "Select a template and hit Build Mission.")
-		: LOCTEXT("StatusIdleSafe", "Idle. Enter a prompt and hit Generate.");
+		? LOCTEXT("StatusIdleDanger", "Danger Zone: Select a template and hit Build Mission.")
+		: LOCTEXT("StatusIdleSafe", "Safe Mode: Ask a question or describe what to generate.");
 
 	if (PromptBox.IsValid())
 	{
@@ -556,8 +556,7 @@ FText SDeltaCodeGeneratorPanel::GetPromptHintText() const
 			"Prompt-driven Danger Zone generation coming soon. "
 			"Use the Template dropdown and Build Mission button.")
 		: LOCTEXT("PromptHintSafe",
-			"Describe what to generate. Be specific about types, "
-			"locations, and intended behavior.");
+			"Ask a question about your project, or describe what to generate.");
 }
 
 FText SDeltaCodeGeneratorPanel::GetGenerateButtonText() const
