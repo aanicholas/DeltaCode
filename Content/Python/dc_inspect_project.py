@@ -479,5 +479,60 @@ def dc_inspect_project(topic=None, silent=False):
     return None
 
 
+def format_scan_for_llm(scan):
+    """Convert a silent-mode scan dict into a compact markdown block suitable
+    for inclusion in an LLM prompt. One section per category, one bullet per
+    row, with kind/path/parent/hints inlined.
+
+    Example:
+        ## Player Characters (2)
+        - BP_DC_Player [BP, /Game/...] parent: Character (matches GameMode.DefaultPawnClass)
+        - ADCCharacterBase [C++, /Script/DeltaCode.DCCharacterBase]
+    """
+    titles = (
+        ("player",    "Player Characters"),
+        ("enemy",     "Enemy / NPC"),
+        ("damage",    "Damage System"),
+        ("animation", "Animation"),
+        ("input",     "Input"),
+    )
+    lines = ["# DeltaCode Project Scan", ""]
+    for cat, title in titles:
+        rows = scan.get(cat, [])
+        lines.append(f"## {title} ({len(rows)})")
+        if not rows:
+            lines.append("- (none found)")
+        else:
+            for r in rows:
+                kind = r.get("kind", "?")
+                name = r.get("name", "?")
+                path = r.get("path", "")
+                parent = r.get("parent")
+                hints = r.get("hints", []) or []
+                line = f"- {name} [{kind}, {path}]"
+                if parent:
+                    line += f" parent: {_short_class_name(parent)}"
+                if hints:
+                    line += f" ({'; '.join(hints)})"
+                lines.append(line)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_scan_for_llm(output_path):
+    """Run the inspector silently, format the result for LLM consumption,
+    and write it to output_path. Used by the C++ bridge to capture inspector
+    output for inclusion in an Anthropic request body — see
+    FDCLevelScriptingBridge::RunInspectorForLLM."""
+    import os
+    scan = dc_inspect_project(topic="all", silent=True)
+    text = format_scan_for_llm(scan)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    total = sum(len(v) for v in scan.values())
+    _log(f"wrote LLM-formatted scan ({len(text)} chars, {total} items) to {output_path}")
+
+
 if __name__ == "__main__":
     dc_inspect_project()
