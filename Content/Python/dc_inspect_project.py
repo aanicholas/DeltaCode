@@ -498,7 +498,9 @@ def format_scan_for_llm(scan):
     )
     lines = ["# DeltaCode Project Scan", ""]
     for cat, title in titles:
-        rows = scan.get(cat, [])
+        if cat not in scan:
+            continue
+        rows = scan[cat]
         lines.append(f"## {title} ({len(rows)})")
         if not rows:
             lines.append("- (none found)")
@@ -519,19 +521,20 @@ def format_scan_for_llm(scan):
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_scan_for_llm(output_path):
+def write_scan_for_llm(output_path, topic="all"):
     """Run the inspector silently, format the result for LLM consumption,
     and write it to output_path. Used by the C++ bridge to capture inspector
     output for inclusion in an Anthropic request body — see
-    FDCLevelScriptingBridge::RunInspectorForLLM."""
+    FDCLevelScriptingBridge::RunInspectorForLLM — and by the Run Inspector
+    button to render the same formatted scan in the panel's Response box."""
     import os
-    scan = dc_inspect_project(topic="all", silent=True)
+    scan = dc_inspect_project(topic=topic, silent=True)
     text = format_scan_for_llm(scan)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(text)
     total = sum(len(v) for v in scan.values())
-    _log(f"wrote LLM-formatted scan ({len(text)} chars, {total} items) to {output_path}")
+    _log(f"wrote LLM-formatted scan ({len(text)} chars, {total} items, topic={topic}) to {output_path}")
 
 
 if __name__ == "__main__":
