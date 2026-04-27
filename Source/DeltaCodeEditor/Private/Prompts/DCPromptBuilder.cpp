@@ -170,6 +170,18 @@ namespace FDCPromptBuilder
 
 		return Out.ToString();
 	}
+
+	FString BuildAskSystemPrompt()
+	{
+		// Verbatim spec from the panel "Ask DeltaCode" flow. Kept as a single
+		// literal so future tweaks are obvious in source control.
+		return TEXT(
+			"You are DeltaCode, an AI assistant embedded in Unreal Engine 5. "
+			"You have been given a scan of the current UE5 project's content. "
+			"Answer the user's question about their project in plain English. "
+			"Be specific about file names and folder paths. "
+			"Do not use jargon unless necessary.");
+	}
 }
 
 #undef LOCTEXT_NAMESPACE

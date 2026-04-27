@@ -381,6 +381,17 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
 				[
 					SNew(SButton)
+					.Text(this, &SDeltaCodeGeneratorPanel::GetAskButtonText)
+					.ToolTipText(LOCTEXT("AskTooltip",
+						"Scan the project (read-only), include the scan as context, and ask "
+						"DeltaCode to answer your question in plain English. (Safe Mode only)"))
+					.IsEnabled(this, &SDeltaCodeGeneratorPanel::IsAskEnabled)
+					.OnClicked(this, &SDeltaCodeGeneratorPanel::OnAskClicked)
+				]
+
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
+				[
+					SNew(SButton)
 					.Text(this, &SDeltaCodeGeneratorPanel::GetGenerateButtonText)
 					.IsEnabled(this, &SDeltaCodeGeneratorPanel::IsGenerateEnabled)
 					.OnClicked(this, &SDeltaCodeGeneratorPanel::OnGenerateClicked)
@@ -499,6 +510,15 @@ bool SDeltaCodeGeneratorPanel::IsCreateCoreAssetsEnabled() const
 	return Mode == EDCGenerationMode::Danger;
 }
 
+bool SDeltaCodeGeneratorPanel::IsAskEnabled() const
+{
+	if (IsBusy()) { return false; }
+	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
+	if (Mode != EDCGenerationMode::Safe) { return false; }
+	if (!PromptBox.IsValid()) { return false; }
+	return !PromptBox->GetText().ToString().TrimStartAndEnd().IsEmpty();
+}
+
 EVisibility SDeltaCodeGeneratorPanel::GetCancelVisibility() const
 {
 	return CurrentActivity == EDCPanelActivity::Generating
@@ -559,6 +579,13 @@ FText SDeltaCodeGeneratorPanel::GetCreateCoreAssetsButtonText() const
 	return CurrentActivity == EDCPanelActivity::CreatingAssets
 		? LOCTEXT("CreatingAssetsBtn", "Creating Assets\u2026")
 		: LOCTEXT("CreateCoreAssetsBtn", "Create Core Assets");
+}
+
+FText SDeltaCodeGeneratorPanel::GetAskButtonText() const
+{
+	return CurrentActivity == EDCPanelActivity::Asking
+		? LOCTEXT("AskingBtn", "Asking\u2026")
+		: LOCTEXT("AskBtn", "Ask DeltaCode");
 }
 
 EVisibility SDeltaCodeGeneratorPanel::GetEntriesPanelVisibility() const
@@ -732,6 +759,98 @@ FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
 
 	StatusText = FText::FromString(Message);
 	return FReply::Handled();
+}
+
+FReply SDeltaCodeGeneratorPanel::OnAskClicked()
+{
+	if (IsBusy())
+	{
+		return FReply::Handled();
+	}
+
+	const FString PromptString = PromptBox.IsValid() ? PromptBox->GetText().ToString() : FString();
+	if (PromptString.TrimStartAndEnd().IsEmpty())
+	{
+		StatusText = LOCTEXT("StatusEmpty", "Prompt is empty.");
+		return FReply::Handled();
+	}
+
+	// Phase 1: scan the project (synchronous Python call). On failure we surface
+	// the bridge's status and bail before firing the network request.
+	CurrentActivity = EDCPanelActivity::Asking;
+	StatusText = LOCTEXT("AskInspecting", "Scanning project\u2026");
+
+	FString FormattedScan;
+	FString BridgeMessage;
+	const bool bScanOk = FDCLevelScriptingBridge::RunInspectorForLLM(FormattedScan, BridgeMessage);
+	if (!bScanOk)
+	{
+		CurrentActivity = EDCPanelActivity::Idle;
+		StatusText = FText::FromString(BridgeMessage);
+		return FReply::Handled();
+	}
+
+	// Phase 2: build the request. System prompt is the verbatim Ask preamble;
+	// user message is the formatted scan followed by the user's question.
+	FDCAnthropicRequest Request;
+	Request.SystemPrompt = FDCPromptBuilder::BuildAskSystemPrompt();
+	const FString UserMessage = FString::Printf(
+		TEXT("%s\nQuestion: %s"), *FormattedScan, *PromptString);
+	Request.Messages.Add(FDCAnthropicMessage::User(UserMessage));
+
+	// Reset prior Generate output before showing the prose answer.
+	bWasCancelled = false;
+	ResponseText = FText::GetEmpty();
+	Entries.Reset();
+	if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
+	StatusText = LOCTEXT("AskSending", "Asking DeltaCode\u2026");
+
+	TWeakPtr<SDeltaCodeGeneratorPanel> WeakSelf = SharedThis(this);
+	ActiveRequest = FDCAnthropicClient::Send(
+		Request,
+		FDCOnAnthropicResponse::CreateLambda(
+			[WeakSelf](const FDCAnthropicResponse& Response)
+			{
+				if (TSharedPtr<SDeltaCodeGeneratorPanel> Pinned = WeakSelf.Pin())
+				{
+					Pinned->OnAskResponseReceived(Response);
+				}
+			}));
+
+	return FReply::Handled();
+}
+
+void SDeltaCodeGeneratorPanel::OnAskResponseReceived(const FDCAnthropicResponse& Response)
+{
+	CurrentActivity = EDCPanelActivity::Idle;
+	ActiveRequest.Reset();
+
+	if (bWasCancelled)
+	{
+		bWasCancelled = false;
+		StatusText = LOCTEXT("StatusCancelled", "Generation cancelled.");
+		return;
+	}
+
+	if (Response.bSuccess)
+	{
+		ResponseText = FText::FromString(Response.Text);
+		// Keep Entries cleared so prose isn't shown above stale code blocks.
+		Entries.Reset();
+		if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
+		StatusText = FText::Format(
+			LOCTEXT("AskDoneFmt",
+				"Answer received. {0} in / {1} out tokens. Stop: {2}."),
+			FText::AsNumber(Response.InputTokens),
+			FText::AsNumber(Response.OutputTokens),
+			FText::FromString(Response.StopReason.IsEmpty() ? TEXT("\u2014") : Response.StopReason));
+	}
+	else
+	{
+		StatusText = FText::Format(
+			LOCTEXT("StatusFailedFmt", "Failed: {0}"),
+			FText::FromString(Response.ErrorMessage));
+	}
 }
 
 FReply SDeltaCodeGeneratorPanel::OnCancelClicked()

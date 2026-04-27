@@ -20,6 +20,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "IPythonScriptPlugin.h"
 #include "Interfaces/IPluginManager.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 #define LOCTEXT_NAMESPACE "DCLevelScriptingBridge"
@@ -73,6 +74,20 @@ namespace DCLevelScriptingBridgePrivate
 			     "_dc_mod.dc_inspect_project('%s')"),
 			*AbsoluteScriptPath,
 			*TopicSlug);
+	}
+
+	/** Invokes dc_inspect_project.write_scan_for_llm(<output_path>) — runs
+	 *  inspector silently, formats for LLM, writes to disk. Caller reads back. */
+	static FString BuildInspectorForLLMCommand(const FString& AbsoluteScriptPath, const FString& OutputPath)
+	{
+		return FString::Printf(
+			TEXT("import importlib.util; "
+			     "_dc_spec = importlib.util.spec_from_file_location('dc_inspect_project', r'%s'); "
+			     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
+			     "_dc_spec.loader.exec_module(_dc_mod); "
+			     "_dc_mod.write_scan_for_llm(r'%s')"),
+			*AbsoluteScriptPath,
+			*OutputPath);
 	}
 }
 
@@ -209,6 +224,59 @@ bool FDCLevelScriptingBridge::ExecuteDangerZoneScript(EDCMissionTemplate Templat
 	}
 
 	return bOk;
+}
+
+bool FDCLevelScriptingBridge::RunInspectorForLLM(FString& OutFormattedScan, FString& OutMessage)
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	if (!IsPythonAvailable())
+	{
+		OutMessage = TEXT(
+			"Python Script Plugin is not available. Enable it under "
+			"Edit > Plugins > Scripting > Python Editor Script Plugin, then restart the editor.");
+		UE_LOG(LogDeltaCodeEditor, Warning, TEXT("[InspectForLLM] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString ScriptPath = ResolvePluginScript(InspectorScriptPath);
+	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*ScriptPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("Project inspector script not found at %s."), *ScriptPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[InspectForLLM] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString OutputPath = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectIntermediateDir(),
+		                TEXT("DeltaCode"),
+		                TEXT("scan_for_llm.txt")));
+
+	const FString Command = BuildInspectorForLLMCommand(ScriptPath, OutputPath);
+	UE_LOG(LogDeltaCodeEditor, Log,
+		TEXT("[InspectForLLM] writing scan to %s"), *OutputPath);
+
+	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+	if (!bOk)
+	{
+		OutMessage = TEXT(
+			"Project inspector raised an error. Check Output Log (LogPython) for the traceback.");
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[InspectForLLM] %s"), *OutMessage);
+		return false;
+	}
+
+	if (!FFileHelper::LoadFileToString(OutFormattedScan, *OutputPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("Failed to read inspector output at %s."), *OutputPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[InspectForLLM] %s"), *OutMessage);
+		return false;
+	}
+
+	OutMessage = FString::Printf(
+		TEXT("Project scan ready (%d chars)."), OutFormattedScan.Len());
+	return true;
 }
 
 bool FDCLevelScriptingBridge::ExecuteProjectInspector(EDCInspectorTopic Topic, FString& OutMessage)

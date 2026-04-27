@@ -39,6 +39,7 @@ enum class EDCPanelActivity : uint8
 	Generating,
 	BuildingMission,
 	CreatingAssets,
+	Asking,
 };
 
 /**
@@ -125,10 +126,26 @@ private:
 	/** Safe Mode "Run Inspector" — read-only project scan via Python bridge. */
 	FReply OnRunInspectorClicked();
 
+	/**
+	 * Safe Mode "Ask DeltaCode" — runs the inspector silently, prepends the
+	 * formatted scan to the user's prompt, sends to Anthropic with the Ask
+	 * system prompt, and shows the prose response in the Response box.
+	 * Bypasses the code-block parser; clears any prior parsed entries.
+	 */
+	FReply OnAskClicked();
+
+	/**
+	 * Anthropic callback for the Ask flow. Plain prose into ResponseBox; no
+	 * code-block parsing. Clears Entries so prose isn't shown above stale
+	 * Generate output.
+	 */
+	void OnAskResponseReceived(const FDCAnthropicResponse& Response);
+
 	bool IsBusy() const;
 	bool IsGenerateEnabled() const;
 	bool IsBuildMissionEnabled() const;
 	bool IsCreateCoreAssetsEnabled() const;
+	bool IsAskEnabled() const;
 	EVisibility GetCancelVisibility() const;
 	EVisibility GetTemplateRowVisibility() const;
 	EVisibility GetDangerWarningVisibility() const;
@@ -141,6 +158,7 @@ private:
 	FText GetGenerateButtonText() const;
 	FText GetBuildMissionButtonText() const;
 	FText GetCreateCoreAssetsButtonText() const;
+	FText GetAskButtonText() const;
 
 	// ── Parsed-file list view ──────────────────────────────────────────────
 

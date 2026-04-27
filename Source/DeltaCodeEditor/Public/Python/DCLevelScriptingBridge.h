@@ -65,6 +65,19 @@ public:
 	 */
 	static bool ExecuteProjectInspector(EDCInspectorTopic Topic, FString& OutMessage);
 
+	/**
+	 * Run dc_inspect_project silently, format the result as compact markdown
+	 * for LLM consumption, and read the formatted text back via a temp file
+	 * under <ProjectIntermediate>/DeltaCode/scan_for_llm.txt. Used by the
+	 * Safe Mode "Ask DeltaCode" flow to inject project context into the
+	 * Anthropic request body. Synchronous — Python runs on the game thread.
+	 *
+	 * @param OutFormattedScan  Formatted scan text on success.
+	 * @param OutMessage        Human-readable status for the panel.
+	 * @return                  True if the inspector ran and the file was read.
+	 */
+	static bool RunInspectorForLLM(FString& OutFormattedScan, FString& OutMessage);
+
 	/** Absolute path to dc_danger_zone.py inside the plugin's Content/Python folder. */
 	static FString GetScriptPath();
 

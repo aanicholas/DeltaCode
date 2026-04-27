@@ -40,6 +40,13 @@ namespace FDCPromptBuilder
 	DELTACODEEDITOR_API FString BuildSystemPrompt(EDCGenerationMode Mode,
 	                                              EDCMissionTemplate Template);
 
+	/**
+	 * System prompt for the Safe Mode "Ask DeltaCode" flow — answers user
+	 * questions about the current UE5 project in plain English using a
+	 * scan of the project content (supplied as part of the user message).
+	 */
+	DELTACODEEDITOR_API FString BuildAskSystemPrompt();
+
 	/** Human-readable name for a generation mode — used in the panel status bar. */
 	DELTACODEEDITOR_API FText ModeDisplayName(EDCGenerationMode Mode);
 
