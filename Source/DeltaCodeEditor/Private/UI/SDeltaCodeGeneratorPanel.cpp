@@ -746,17 +746,40 @@ FReply SDeltaCodeGeneratorPanel::OnCreateCoreAssetsClicked()
 FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
 {
 	// Inspector is synchronous and quick; per design we skip activity gating
-	// and don't introduce a new EDCPanelActivity value for it. Output goes
-	// to the Output Log via unreal.log inside the Python script.
+	// and don't introduce a new EDCPanelActivity value for it. The verbose
+	// report still goes to the Output Log (ExecuteProjectInspector); the
+	// LLM-formatted scan is also rendered into the Response box so users
+	// don't have to dig through LogPython for results.
 	const EDCInspectorTopic Topic = SelectedInspectorTopic.IsValid()
 		? *SelectedInspectorTopic : EDCInspectorTopic::All;
 
 	StatusText = LOCTEXT("InspectorRunning", "Running project inspector\u2026");
 
-	FString Message;
-	FDCLevelScriptingBridge::ExecuteProjectInspector(Topic, Message);
+	FString LogMessage;
+	FDCLevelScriptingBridge::ExecuteProjectInspector(Topic, LogMessage);
 
-	StatusText = FText::FromString(Message);
+	FString FormattedScan;
+	FString BridgeMessage;
+	const bool bScanOk = FDCLevelScriptingBridge::RunInspectorForLLM(
+		Topic, FormattedScan, BridgeMessage);
+
+	if (bScanOk)
+	{
+		// Clear any prior parsed code blocks so the scan prose stands alone.
+		ResponseText = FText::FromString(FormattedScan);
+		Entries.Reset();
+		if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
+		StatusText = FText::Format(
+			LOCTEXT("InspectorDoneFmt",
+				"{0} See Output Log for full report."),
+			FText::FromString(BridgeMessage));
+	}
+	else
+	{
+		// Bridge failed \u2014 leave Response box untouched, surface the reason.
+		StatusText = FText::FromString(BridgeMessage);
+	}
+
 	return FReply::Handled();
 }
 
@@ -781,7 +804,8 @@ FReply SDeltaCodeGeneratorPanel::OnAskClicked()
 
 	FString FormattedScan;
 	FString BridgeMessage;
-	const bool bScanOk = FDCLevelScriptingBridge::RunInspectorForLLM(FormattedScan, BridgeMessage);
+	const bool bScanOk = FDCLevelScriptingBridge::RunInspectorForLLM(
+		EDCInspectorTopic::All, FormattedScan, BridgeMessage);
 	if (!bScanOk)
 	{
 		CurrentActivity = EDCPanelActivity::Idle;

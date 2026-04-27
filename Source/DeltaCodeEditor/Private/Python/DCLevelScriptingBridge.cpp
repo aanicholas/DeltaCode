@@ -76,18 +76,22 @@ namespace DCLevelScriptingBridgePrivate
 			*TopicSlug);
 	}
 
-	/** Invokes dc_inspect_project.write_scan_for_llm(<output_path>) — runs
-	 *  inspector silently, formats for LLM, writes to disk. Caller reads back. */
-	static FString BuildInspectorForLLMCommand(const FString& AbsoluteScriptPath, const FString& OutputPath)
+	/** Invokes dc_inspect_project.write_scan_for_llm(<output_path>, <topic>) —
+	 *  runs inspector silently for the given topic, formats for LLM, writes
+	 *  to disk. Caller reads back. */
+	static FString BuildInspectorForLLMCommand(const FString& AbsoluteScriptPath,
+	                                           const FString& OutputPath,
+	                                           const FString& TopicSlug)
 	{
 		return FString::Printf(
 			TEXT("import importlib.util; "
 			     "_dc_spec = importlib.util.spec_from_file_location('dc_inspect_project', r'%s'); "
 			     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
 			     "_dc_spec.loader.exec_module(_dc_mod); "
-			     "_dc_mod.write_scan_for_llm(r'%s')"),
+			     "_dc_mod.write_scan_for_llm(r'%s', '%s')"),
 			*AbsoluteScriptPath,
-			*OutputPath);
+			*OutputPath,
+			*TopicSlug);
 	}
 }
 
@@ -226,7 +230,9 @@ bool FDCLevelScriptingBridge::ExecuteDangerZoneScript(EDCMissionTemplate Templat
 	return bOk;
 }
 
-bool FDCLevelScriptingBridge::RunInspectorForLLM(FString& OutFormattedScan, FString& OutMessage)
+bool FDCLevelScriptingBridge::RunInspectorForLLM(EDCInspectorTopic Topic,
+                                                 FString& OutFormattedScan,
+                                                 FString& OutMessage)
 {
 	using namespace DCLevelScriptingBridgePrivate;
 
@@ -253,9 +259,10 @@ bool FDCLevelScriptingBridge::RunInspectorForLLM(FString& OutFormattedScan, FStr
 		                TEXT("DeltaCode"),
 		                TEXT("scan_for_llm.txt")));
 
-	const FString Command = BuildInspectorForLLMCommand(ScriptPath, OutputPath);
+	const FString Slug = InspectorTopicSlug(Topic);
+	const FString Command = BuildInspectorForLLMCommand(ScriptPath, OutputPath, Slug);
 	UE_LOG(LogDeltaCodeEditor, Log,
-		TEXT("[InspectForLLM] writing scan to %s"), *OutputPath);
+		TEXT("[InspectForLLM] writing scan to %s topic=%s"), *OutputPath, *Slug);
 
 	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
 	if (!bOk)
@@ -275,7 +282,7 @@ bool FDCLevelScriptingBridge::RunInspectorForLLM(FString& OutFormattedScan, FStr
 	}
 
 	OutMessage = FString::Printf(
-		TEXT("Project scan ready (%d chars)."), OutFormattedScan.Len());
+		TEXT("Project scan ready (%d chars, topic=%s)."), OutFormattedScan.Len(), *Slug);
 	return true;
 }
 
