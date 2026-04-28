@@ -72,6 +72,66 @@ namespace DCPanelPrivate
 		}
 		return Lines;
 	}
+
+	/**
+	 * Heuristic: does this prompt look like a question the user meant to send
+	 * via Ask DeltaCode? A '?' anywhere counts; otherwise the first word must
+	 * match a small fixed set of question openers. Used by OnGenerateClicked
+	 * to redirect mistaken Generate clicks into the project-aware Ask flow.
+	 */
+	static bool LooksLikeQuestion(const FString& Prompt)
+	{
+		const FString Trimmed = Prompt.TrimStartAndEnd();
+		if (Trimmed.IsEmpty())
+		{
+			return false;
+		}
+
+		if (Trimmed.Contains(TEXT("?")))
+		{
+			return true;
+		}
+
+		// First whitespace-delimited token, lowercased, trailing punctuation stripped.
+		int32 SpaceIdx = INDEX_NONE;
+		for (int32 i = 0; i < Trimmed.Len(); ++i)
+		{
+			const TCHAR Ch = Trimmed[i];
+			if (Ch == TEXT(' ') || Ch == TEXT('\t') || Ch == TEXT('\n') || Ch == TEXT('\r'))
+			{
+				SpaceIdx = i;
+				break;
+			}
+		}
+		FString FirstWord = (SpaceIdx == INDEX_NONE) ? Trimmed : Trimmed.Left(SpaceIdx);
+		FirstWord = FirstWord.TrimQuotes().ToLower();
+		while (!FirstWord.IsEmpty())
+		{
+			const TCHAR Last = FirstWord[FirstWord.Len() - 1];
+			if (Last == TEXT(',') || Last == TEXT(';') || Last == TEXT(':') || Last == TEXT('.'))
+			{
+				FirstWord.LeftChopInline(1, EAllowShrinking::No);
+			}
+			else
+			{
+				break;
+			}
+		}
+
+		static const TCHAR* QuestionOpeners[] = {
+			TEXT("can"), TEXT("could"), TEXT("what"), TEXT("where"),
+			TEXT("which"), TEXT("how"), TEXT("why"),
+			TEXT("is"), TEXT("are"), TEXT("do"), TEXT("does"),
+		};
+		for (const TCHAR* Opener : QuestionOpeners)
+		{
+			if (FirstWord == Opener)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 // ─── Construction / teardown ─────────────────────────────────────────────────
@@ -627,6 +687,24 @@ FReply SDeltaCodeGeneratorPanel::OnGenerateClicked()
 	{
 		StatusText = LOCTEXT("StatusEmpty", "Prompt is empty.");
 		return FReply::Handled();
+	}
+
+	// Question-shaped prompts are almost always users hitting Generate when
+	// they meant Ask DeltaCode. Reroute to the project-aware Ask flow and
+	// surface a toast — Ask immediately overwrites StatusText, so the toast
+	// is the load-bearing feedback that auto-routing happened.
+	if (DCPanelPrivate::LooksLikeQuestion(PromptString))
+	{
+		const FText RouteMessage = LOCTEXT("StatusRouted",
+			"Question detected — using Ask DeltaCode for project-aware response.");
+		StatusText = RouteMessage;
+
+		FNotificationInfo Info(RouteMessage);
+		Info.ExpireDuration = 4.0f;
+		Info.bUseSuccessFailIcons = false;
+		FSlateNotificationManager::Get().AddNotification(Info);
+
+		return OnAskClicked();
 	}
 
 	const EDCGenerationMode Mode =
