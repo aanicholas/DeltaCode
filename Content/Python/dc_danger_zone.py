@@ -839,11 +839,12 @@ def _spawn_level_essentials():
     PIE isn't pitch black and spawned AI has something to path on. Called
     on first-time creation of L_DC_DangerZone; clear_level() preserves
     these actors across subsequent Build Mission runs via _PRESERVE_CLASSES."""
-    # Sun light at -45° pitch — standard "sun from above/behind" angle.
+    # Sun light: (0, 225, 30) — yaw 225° puts the sun in the back-left quadrant
+    # with a 30° pitch, giving long raking shadows for screenshot-friendly framing.
     dir_light = _spawn_registered(
         unreal.DirectionalLight,
         unreal.Vector(0, 0, 500),
-        unreal.Rotator(-45, 0, 0))
+        unreal.Rotator(0, 225, 30))
     if dir_light is not None:
         dir_light.set_actor_label("DC_DirectionalLight")
 
