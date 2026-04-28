@@ -634,7 +634,25 @@ def _apply_mesh_to_actor(actor, class_path):
             None,
             "/Game/Variant_Combat/Anims/ABP_Manny_Combat.ABP_Manny_Combat_C")
         if anim_class is not None:
+            # set_editor_property("anim_class", ...) updates the UPROPERTY so the
+            # Details panel reads correctly, but does NOT call InitAnim — and the
+            # default animation_mode on a placed SkeletalMeshComponent is Custom,
+            # so PIE would start with a null AnimInstance and no animation plays.
+            # Force the mode to AnimationBlueprint, then call set_anim_instance_class
+            # to actually instantiate the AnimInstance for runtime.
+            mesh_comp.set_editor_property(
+                "animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT)
             mesh_comp.set_editor_property("anim_class", anim_class)
+            try:
+                mesh_comp.set_anim_instance_class(anim_class)
+            except Exception:
+                # Older binding name on some UE versions.
+                try:
+                    mesh_comp.set_anim_class(anim_class)
+                except Exception as e:
+                    unreal.log_warning(
+                        f"DeltaCode: anim instance reinit failed on "
+                        f"{actor.get_name()} — {e}")
         else:
             unreal.log_warning(
                 f"DeltaCode: failed to load ABP_Manny_Combat for "
@@ -867,6 +885,30 @@ def _spawn_level_essentials():
     _ensure_navmesh_bounds()
 
 
+def _ensure_directional_light_rotation():
+    """Force DC_DirectionalLight to (0, 225, 30) on every Build Mission.
+
+    DirectionalLight is in _PRESERVE_CLASSES, so once L_DC_DangerZone exists
+    the spawn block in _spawn_level_essentials never runs again — meaning
+    rotation tweaks landed in source don't reach already-built levels until
+    the user manually re-aims the light. This helper closes the gap by
+    rewriting the rotation every build. Idempotent. startswith match catches
+    suffixed labels like 'DC_DirectionalLight_2'.
+
+    If you've manually re-aimed DC_DirectionalLight in the editor, the next
+    Build Mission will overwrite that change — by design.
+    """
+    target_rot = unreal.Rotator(0, 225, 30)
+    for actor in _actor_subsystem().get_all_level_actors():
+        if not isinstance(actor, unreal.DirectionalLight):
+            continue
+        if not actor.get_actor_label().startswith("DC_DirectionalLight"):
+            continue
+        actor.set_actor_rotation(target_rot, teleport_physics=False)
+        unreal.log(
+            f"DeltaCode: {actor.get_actor_label()} rotation set to (0, 225, 30).")
+
+
 def _ensure_navmesh_bounds():
     """Spawn a NavMeshBoundsVolume if none exists in the current level.
 
@@ -914,6 +956,7 @@ def run_danger_zone(mission_template):
     if not unreal.EditorAssetLibrary.does_asset_exist(_DC_DANGER_ZONE_LEVEL):
         les.new_level(_DC_DANGER_ZONE_LEVEL)
         _spawn_level_essentials()
+        _ensure_directional_light_rotation()
         # Persist lights + navmesh so the next run's load_level branch sees
         # them instead of an empty saved level.
         les.save_current_level()
@@ -923,6 +966,9 @@ def run_danger_zone(mission_template):
         # Backfill navmesh on levels created before auto-spawn existed.
         # Idempotent — no-op if the level already has one.
         _ensure_navmesh_bounds()
+        # Rewrite preserved DirectionalLight rotation to match current source —
+        # _PRESERVE_CLASSES would otherwise pin existing levels to old values.
+        _ensure_directional_light_rotation()
         unreal.log("DeltaCode: opened L_DC_DangerZone")
 
     world = get_editor_world()
@@ -977,5 +1023,5 @@ def run_danger_zone(mission_template):
     create_floor(mission_template)
     builder(world)
     unreal.log(f"DeltaCode: Danger Zone complete — template='{mission_template}'")
-    unreal.log("DeltaCode: Build complete. NOTE: If enemies are not moving, "
-               "save the level and restart the editor to fully initialize the NavMesh.")
+    unreal.log("DeltaCode: NavMesh requires manual rebuild. Press P in the "
+               "viewport to visualize, then use Build > Build Paths.")
