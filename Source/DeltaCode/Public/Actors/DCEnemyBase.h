@@ -81,7 +81,7 @@ public:
 	// reference a BlackboardAsset containing the keys declared in
 	// AI/DCAIBlackboardKeys.h (TargetActor, LastKnownLocation, HomeLocation,
 	// bIsInvestigating). Leave null to opt out of BT-driven AI entirely.
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DeltaCode|Enemy|AI")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DeltaCode|Enemy|AI")
 	TObjectPtr<UBehaviorTree> BehaviorTree;
 
 	// Seconds to keep the corpse around before Destroy(). <= 0 = never destroy.
