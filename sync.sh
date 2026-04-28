@@ -6,7 +6,6 @@ SOURCE_PYTHON="$HOME/Documents/DeltaCode/Content/Python"
 DESTINATIONS=(
     "$HOME/Documents/Unreal Projects/DeltaCodeOpus/Plugins/DeltaCode/Content/Python"
     "$HOME/Documents/Unreal Projects/DC_Prototype/Plugins/DeltaCode/Content/Python"
-    "$HOME/Documents/Unreal Projects/DeltaCode/Plugins/DeltaCode/Content/Python"
 )
 
 for DEST in "${DESTINATIONS[@]}"; do
