@@ -1,10 +1,11 @@
 #!/bin/bash
-# build.sh — Build one or both UE projects that host the DeltaCode plugin.
+# build.sh — Build one or all UE projects that host the DeltaCode plugin.
 #
 # Usage:
-#   ./build.sh           Builds both projects (fail-fast)
+#   ./build.sh           Builds all three projects (fail-fast)
 #   ./build.sh opus      Builds DeltaCodeOpus
 #   ./build.sh prototype Builds DC_Prototype (blank-project test bed)
+#   ./build.sh lyra      Builds Lyra sample (DeltaCode_PL)
 #
 # Each project's engine version is read from the EngineAssociation field
 # of its .uproject; the matching engine is expected at /Applications/UE_<ver>.
@@ -71,18 +72,20 @@ build_one() {
 
 build_opus()      { build_one "DeltaCodeOpus" "$PROJECTS_ROOT/DeltaCodeOpus" "DeltaCodeOpusEditor"; }
 build_prototype() { build_one "DC_Prototype"  "$PROJECTS_ROOT/DC_Prototype"  "DC_PrototypeEditor"; }
+build_lyra()      { build_one "Lyra (DeltaCode_PL)" "$PROJECTS_ROOT/DeltaCode_PL" "LyraEditor"; }
 
 case "${1:-all}" in
     opus)      build_opus ;;
     prototype) build_prototype ;;
-    all)       build_opus && build_prototype ;;
+    lyra)      build_lyra ;;
+    all)       build_opus && build_prototype && build_lyra ;;
     -h|--help)
-        sed -n '2,13p' "$0"
+        sed -n '2,14p' "$0"
         exit 0
         ;;
     *)
         echo "Unknown project: $1" >&2
-        echo "Usage: $0 [opus|prototype]   (no arg = both)" >&2
+        echo "Usage: $0 [opus|prototype|lyra]   (no arg = all)" >&2
         exit 2
         ;;
 esac
