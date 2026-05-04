@@ -7,6 +7,7 @@ public class DeltaCodeEditor : ModuleRules
     public DeltaCodeEditor(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+        CppStandard = CppStandardVersion.Cpp20;
 
         PublicDependencyModuleNames.AddRange(new string[]
         {
