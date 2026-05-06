@@ -20,7 +20,9 @@
 #include "Components/DCInventoryComponent.h"
 #include "Components/DCEquipmentComponent.h"
 #include "Data/DCWeaponDefinition.h"
-#include "Interfaces/DCDamageable.h"
+#include "GAS/DCDamageStatics.h"
+#include "Types/DCDamageable.h"
+#include "Types/DCDamageTypes.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
@@ -186,10 +188,14 @@ void ADCWeaponBase::PerformHitscan()
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
 	const FVector ImpactLoc = bHit ? Hit.ImpactPoint : End;
 
-	if (HitActor && HitActor->Implements<UDCDamageable>())
+	if (HitActor)
 	{
-		IDCDamageable::Execute_ApplyDamage(HitActor, Definition->Damage,
-		                                   OwnerCharacter.Get(), this);
+		// TODO: drive Tier from UDCWeaponDefinition once a DamageTier
+		// field is added there. Default Medium matches the legacy float
+		// damage range used by current weapon definitions.
+		UDCDamageStatics::ApplyDefaultTieredDamage(
+			HitActor, EDCDamageTier::Medium, FGameplayTagContainer{},
+			OwnerCharacter.Get(), this);
 	}
 
 	OnFireFX(MuzzleLoc, ImpactLoc, HitActor);
@@ -233,10 +239,13 @@ void ADCWeaponBase::PerformMelee()
 		FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(60.0f), Params);
 
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
-	if (HitActor && HitActor->Implements<UDCDamageable>())
+	if (HitActor)
 	{
-		IDCDamageable::Execute_ApplyDamage(HitActor, Definition->Damage,
-		                                   OwnerCharacter.Get(), this);
+		// TODO: drive Tier from UDCWeaponDefinition once a DamageTier
+		// field is added there.
+		UDCDamageStatics::ApplyDefaultTieredDamage(
+			HitActor, EDCDamageTier::Medium, FGameplayTagContainer{},
+			OwnerCharacter.Get(), this);
 	}
 
 	OnFireFX(MuzzleLoc, bHit ? Hit.ImpactPoint : End, HitActor);

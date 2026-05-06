@@ -19,7 +19,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
-#include "Interfaces/DCDamageable.h"
+#include "Types/DCDamageable.h"
 #include "Types/DCCoreTypes.h"
 #include "DCCharacterBase.generated.h"
 
@@ -49,9 +49,11 @@ public:
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 	// IDCDamageable
-	virtual void ApplyDamage_Implementation(float DamageAmount, AActor* DamageSource,
-	                                        AActor* DamageCauser) override;
-	virtual bool IsDead_Implementation() const override;
+	virtual float ApplyDamageTier_Implementation(EDCDamageTier Tier,
+	                                             const FGameplayTagContainer& SourceTags,
+	                                             AActor* Instigator,
+	                                             AActor* Causer) override;
+	virtual bool CanReceiveDamage_Implementation() const override;
 
 	// Base stats — overridden per character Blueprint
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DeltaCode|Stats")

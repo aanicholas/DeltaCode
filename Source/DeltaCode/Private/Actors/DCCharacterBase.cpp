@@ -47,19 +47,35 @@ UAbilitySystemComponent* ADCCharacterBase::GetAbilitySystemComponent() const
 	return AbilitySystemComponent;
 }
 
-void ADCCharacterBase::ApplyDamage_Implementation(float DamageAmount, AActor* DamageSource,
-                                                   AActor* DamageCauser)
+float ADCCharacterBase::ApplyDamageTier_Implementation(EDCDamageTier Tier,
+                                                        const FGameplayTagContainer& SourceTags,
+                                                        AActor* Instigator,
+                                                        AActor* Causer)
 {
-	// [OUTPUT] To: UDCHealthComponent — authoritative damage bookkeeping
-	if (HealthComponent)
+	// [OUTPUT] To: UDCHealthComponent — authoritative damage bookkeeping.
+	// Lethal short-circuits via Kill(); Magnitude returned reflects the
+	// pre-clamp delta so callers (UI hit numbers) see the intended hit.
+	if (!HealthComponent || HealthComponent->IsDead() || Tier == EDCDamageTier::None)
 	{
-		HealthComponent->ApplyDamage(DamageAmount, DamageSource, DamageCauser);
+		return 0.0f;
 	}
+
+	if (Tier == EDCDamageTier::Lethal)
+	{
+		const float Headroom = HealthComponent->GetCurrentHealth();
+		HealthComponent->Kill(Instigator, Causer);
+		return Headroom;
+	}
+
+	const FDCDamageConfig Config;
+	const float Magnitude = Config.ResolveMagnitude(Tier);
+	HealthComponent->ApplyDamage(Magnitude, Instigator, Causer);
+	return Magnitude;
 }
 
-bool ADCCharacterBase::IsDead_Implementation() const
+bool ADCCharacterBase::CanReceiveDamage_Implementation() const
 {
-	return HealthComponent ? HealthComponent->IsDead() : false;
+	return HealthComponent && !HealthComponent->IsDead();
 }
 
 void ADCCharacterBase::BeginPlay()

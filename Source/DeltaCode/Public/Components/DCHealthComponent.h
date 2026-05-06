@@ -34,7 +34,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FDCOnRevived);
  * Damage / health bookkeeping for anything that implements IDCDamageable.
  * Lives on ADCCharacterBase (player + enemies) and destructibles.
  *
- * [INPUT]  From: IDCDamageable::ApplyDamage_Implementation → ApplyDamage()
+ * [INPUT]  From: IDCDamageable::ApplyDamageTier_Implementation → ApplyDamage()
  * [INPUT]  From: UDCItem consumables (heal potion) via Heal()
  * [OUTPUT] To:   UI health bar widgets via OnHealthChanged
  * [OUTPUT] To:   ADCEnemyBase::HandleDeath via OnDied
