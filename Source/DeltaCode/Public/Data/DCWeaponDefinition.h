@@ -18,6 +18,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/DCEquipmentDefinition.h"
+#include "Types/DCDamageTypes.h"
 #include "DCWeaponDefinition.generated.h"
 
 class ADCWeaponBase;
@@ -75,6 +76,26 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "DeltaCode|Weapon|Combat")
 	EDCWeaponHitMode HitMode = EDCWeaponHitMode::Hitscan;
+
+	// ── Damage (tier-driven; consumed by UDCDamageStatics) ──────────────────
+	//
+	// Designers set DamageTier per weapon archetype:
+	//   Melee weapons    → EDCDamageTier::Melee
+	//   Pistol           → EDCDamageTier::Light
+	//   Rifle            → EDCDamageTier::Light
+	//   Shotgun          → EDCDamageTier::Medium
+	//   Heavy / Launcher → EDCDamageTier::Heavy
+	//
+	// DamageConfig overrides the per-tier magnitude map and the damage GE
+	// for this specific weapon — e.g. point at GE_Damage_Pistol instead of
+	// the default GE_Damage_Basic_SetByCaller. Leave defaulted to ride
+	// DeltaCode's standard tier table.
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DeltaCode|Weapon|Damage")
+	EDCDamageTier DamageTier = EDCDamageTier::Light;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DeltaCode|Weapon|Damage")
+	FDCDamageConfig DamageConfig;
 
 	// ── Ammo ────────────────────────────────────────────────────────────────
 

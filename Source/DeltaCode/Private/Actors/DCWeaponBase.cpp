@@ -190,12 +190,9 @@ void ADCWeaponBase::PerformHitscan()
 
 	if (HitActor)
 	{
-		// TODO: drive Tier from UDCWeaponDefinition once a DamageTier
-		// field is added there. Default Medium matches the legacy float
-		// damage range used by current weapon definitions.
-		UDCDamageStatics::ApplyDefaultTieredDamage(
-			HitActor, EDCDamageTier::Medium, FGameplayTagContainer{},
-			OwnerCharacter.Get(), this);
+		UDCDamageStatics::ApplyTieredDamage(
+			HitActor, Definition->DamageTier, FGameplayTagContainer{},
+			OwnerCharacter.Get(), this, Definition->DamageConfig);
 	}
 
 	OnFireFX(MuzzleLoc, ImpactLoc, HitActor);
@@ -241,11 +238,9 @@ void ADCWeaponBase::PerformMelee()
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
 	if (HitActor)
 	{
-		// TODO: drive Tier from UDCWeaponDefinition once a DamageTier
-		// field is added there.
-		UDCDamageStatics::ApplyDefaultTieredDamage(
-			HitActor, EDCDamageTier::Medium, FGameplayTagContainer{},
-			OwnerCharacter.Get(), this);
+		UDCDamageStatics::ApplyTieredDamage(
+			HitActor, Definition->DamageTier, FGameplayTagContainer{},
+			OwnerCharacter.Get(), this, Definition->DamageConfig);
 	}
 
 	OnFireFX(MuzzleLoc, bHit ? Hit.ImpactPoint : End, HitActor);
