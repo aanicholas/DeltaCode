@@ -41,16 +41,56 @@ _ANIM_SEQ_CP         = ("/Script/Engine",        "AnimSequence")
 _INPUT_ACTION_CP     = ("/Script/EnhancedInput", "InputAction")
 _IMC_CP              = ("/Script/EnhancedInput", "InputMappingContext")
 
+# GAS — present whenever the GameplayAbilities module is loaded.
+_GA_CP                          = ("/Script/GameplayAbilities", "GameplayAbility")
+_GE_CP                          = ("/Script/GameplayAbilities", "GameplayEffect")
+_AS_CP                          = ("/Script/GameplayAbilities", "AttributeSet")
+_GC_NOTIFY_STATIC_CP            = ("/Script/GameplayAbilities", "GameplayCueNotify_Static")
+_GC_NOTIFY_ACTOR_CP             = ("/Script/GameplayAbilities", "GameplayCueNotify_Actor")
+
+# Lyra-specific types (module /Script/LyraGame). Each scan tolerates absence
+# so non-Lyra projects fall through to empty results.
+_LYRA_ABILITY_SET_CP            = ("/Script/LyraGame", "LyraAbilitySet")
+_LYRA_EXPERIENCE_DEF_CP         = ("/Script/LyraGame", "LyraExperienceDefinition")
+_LYRA_EXPERIENCE_ACTIONSET_CP   = ("/Script/LyraGame", "LyraExperienceActionSet")
+_LYRA_PAWN_DATA_CP              = ("/Script/LyraGame", "LyraPawnData")
+_LYRA_INPUT_CONFIG_CP           = ("/Script/LyraGame", "LyraInputConfig")
+_LYRA_CAMERA_MODE_CP            = ("/Script/LyraGame", "LyraCameraMode")
+_LYRA_INV_ITEM_DEF_CP           = ("/Script/LyraGame", "LyraInventoryItemDefinition")
+_LYRA_INV_FRAGMENT_CP           = ("/Script/LyraGame", "LyraInventoryItemFragment")
+_LYRA_EQUIPMENT_DEF_CP          = ("/Script/LyraGame", "LyraEquipmentDefinition")
+_LYRA_WEAPON_INSTANCE_CP        = ("/Script/LyraGame", "LyraWeaponInstance")
+
+# Game Features — used by Lyra and any modular UE project.
+_GAME_FEATURE_DATA_CP           = ("/Script/GameFeatures", "GameFeatureData")
+_GAME_FEATURE_ACTION_CP         = ("/Script/GameFeatures", "GameFeatureAction")
+
+# Modular Gameplay — base classes Lyra characters extend.
+_MODULAR_CHARACTER_CP           = ("/Script/ModularGameplayActors", "ModularCharacter")
+
 _TOPICS_TO_CATEGORIES = {
-    None:        ("player", "enemy", "damage", "animation", "input"),
-    "all":       ("player", "enemy", "damage", "animation", "input"),
-    "player":    ("player",),
-    "enemy":     ("enemy",),
-    "ai":        ("enemy",),
-    "damage":    ("damage",),
-    "combat":    ("damage",),
-    "animation": ("animation",),
-    "input":     ("input",),
+    None:           ("player", "enemy", "damage", "animation", "input"),
+    "all":          ("player", "enemy", "damage", "animation", "input",
+                     "gas", "experience", "equipment", "inventory",
+                     "gamefeatures", "input_config", "camera"),
+    "player":       ("player",),
+    "enemy":        ("enemy",),
+    "ai":           ("enemy",),
+    "damage":       ("damage",),
+    "combat":       ("damage",),
+    "animation":    ("animation",),
+    "input":        ("input",),
+    # Lyra / GAS additions.
+    "gas":          ("gas",),
+    "abilities":    ("gas",),
+    "experience":   ("experience",),
+    "equipment":    ("equipment",),
+    "inventory":    ("inventory",),
+    "gamefeatures": ("gamefeatures",),
+    "input_config": ("input_config",),
+    "camera":       ("camera",),
+    "lyra":         ("experience", "gas", "equipment", "inventory",
+                     "gamefeatures", "input_config", "camera"),
 }
 
 
@@ -89,6 +129,54 @@ def _filter_assets(class_path, scan_path=_DEFAULT_SCAN_PATH, recursive=True):
     except Exception as e:
         _log(f"WARN: get_assets failed for {class_path} — {e}")
         return []
+
+
+def _filter_assets_multi(class_path, scan_paths, recursive=True):
+    """All AssetData of class across multiple package roots.
+
+    Used by Lyra-aware categories so plugin content (/ShooterCore/, etc.) is
+    included alongside /Game/. Deduplicates by package_name.
+    """
+    seen = set()
+    out = []
+    for p in scan_paths:
+        for ad in _filter_assets(class_path, scan_path=p, recursive=recursive):
+            key = str(ad.package_name)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ad)
+    return out
+
+
+def _lyra_plugin_mount_points():
+    """Game Feature plugin mount points discovered on disk.
+
+    Reads ``Plugins/GameFeatures/<Name>/<Name>.uplugin`` under the project
+    directory and returns mount-point strings like ``/ShooterCore`` for use
+    as ``package_paths`` in AssetRegistry filters. Returns [] for non-Lyra
+    projects (no GameFeatures dir).
+    """
+    import os
+    try:
+        proj_dir = unreal.SystemLibrary.get_project_directory()
+    except Exception:
+        return []
+    gf_dir = os.path.join(proj_dir, "Plugins", "GameFeatures")
+    if not os.path.isdir(gf_dir):
+        return []
+    out = []
+    for name in sorted(os.listdir(gf_dir)):
+        uplugin = os.path.join(gf_dir, name, f"{name}.uplugin")
+        if os.path.isfile(uplugin):
+            out.append(f"/{name}")
+    return out
+
+
+def _lyra_scan_paths():
+    """/Game plus all discovered Game Feature plugin mounts. Used by all
+    Lyra-aware scans so plugin content is included by default."""
+    return [_DEFAULT_SCAN_PATH] + _lyra_plugin_mount_points()
 
 
 def _native_classes_derived_from(parent_cp):
@@ -417,23 +505,298 @@ def _format_input(rows):
         _emit_compact(r)
 
 
+# ─── CATEGORY: GAS (ABILITIES / EFFECTS / ATTRIBUTES / CUES) ────────────────
+
+def _scan_gas():
+    """GAS surface across /Game and Lyra plugin mounts.
+
+    Returns rows for: UGameplayAbility BPs + natives, UGameplayEffect BPs +
+    natives, UAttributeSet natives (data instances are rare), GameplayCue
+    notify BPs + natives, and ULyraAbilitySet data assets. The BP filter
+    iterates the Blueprint asset list once and dispatches by parent class
+    substring, so adding more GAS-adjacent kinds doesn't grow the scan cost.
+    """
+    paths = _lyra_scan_paths()
+    bps = _filter_assets_multi(_BLUEPRINT_CP, paths)
+    rows = []
+
+    for ad in bps:
+        parent = _bp_parent_class_path(ad)
+        if not parent:
+            continue
+        # Order matters — GameplayCueNotify is checked first because its
+        # name does not contain GameplayAbility/GameplayEffect, but a future
+        # rename could shadow if checked later.
+        if 'GameplayCueNotify' in parent:
+            kind = "GC-BP"
+        elif 'GameplayEffect' in parent:
+            kind = "GE-BP"
+        elif 'GameplayAbility' in parent:
+            kind = "GA-BP"
+        else:
+            continue
+        rows.append({"kind": kind, "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad),
+                     "parent": parent, "hints": []})
+
+    for cp in _native_classes_derived_from(_GA_CP):
+        rows.append({"kind": "GA-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_GE_CP):
+        rows.append({"kind": "GE-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_AS_CP):
+        rows.append({"kind": "AS", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_GC_NOTIFY_STATIC_CP):
+        rows.append({"kind": "GC-Static-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_GC_NOTIFY_ACTOR_CP):
+        rows.append({"kind": "GC-Actor-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+
+    # ULyraAbilitySet — PrimaryDataAsset; instances ARE assets.
+    for ad in _filter_assets_multi(_LYRA_ABILITY_SET_CP, paths):
+        rows.append({"kind": "AbilitySet", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+
+    return rows
+
+
+def _format_gas(rows):
+    _hr_section("GAS (Abilities / Effects / Attributes / Cues)", len(rows))
+    for r in rows:
+        # Native rows have parent=None and no hints; data-asset rows omit
+        # parent entirely. Multi-line layout for anything with a parent.
+        if r.get("parent"):
+            _emit_full(r)
+        else:
+            _emit_compact(r)
+
+
+# ─── CATEGORY: EXPERIENCE (LYRA EXPERIENCES / PAWN DATA) ────────────────────
+
+def _scan_experience():
+    """ULyraExperienceDefinition / ActionSet / PawnData data assets.
+
+    These are the wiring layer that selects which game features, abilities,
+    pawn class, input config, and camera mode are active for a session. The
+    Inspector's player heuristic is GameMode.DefaultPawnClass-based and
+    misses Lyra's experience-driven flow entirely — this category surfaces
+    the assets that actually drive pawn selection.
+    """
+    paths = _lyra_scan_paths()
+    rows = []
+    for ad in _filter_assets_multi(_LYRA_EXPERIENCE_DEF_CP, paths):
+        rows.append({"kind": "Experience", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for ad in _filter_assets_multi(_LYRA_EXPERIENCE_ACTIONSET_CP, paths):
+        rows.append({"kind": "ActionSet", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for ad in _filter_assets_multi(_LYRA_PAWN_DATA_CP, paths):
+        rows.append({"kind": "PawnData", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    return rows
+
+
+def _format_experience(rows):
+    _hr_section("Experience / PawnData", len(rows))
+    for r in rows:
+        _emit_compact(r)
+
+
+# ─── CATEGORY: EQUIPMENT (LYRA EQUIPMENT / WEAPONS) ─────────────────────────
+
+def _scan_equipment():
+    """ULyraEquipmentDefinition + ULyraWeaponInstance — BPs and natives.
+
+    Equipment definitions describe what to grant on equip (ability sets,
+    actors to spawn, instance class). Weapon instances are runtime
+    per-equipped objects — Lyra subclasses them per weapon.
+    """
+    paths = _lyra_scan_paths()
+    bps = _filter_assets_multi(_BLUEPRINT_CP, paths)
+    rows = []
+    for ad in bps:
+        parent = _bp_parent_class_path(ad)
+        if not parent:
+            continue
+        if 'LyraEquipmentDefinition' in parent:
+            kind = "EquipDef-BP"
+        elif 'LyraWeaponInstance' in parent or 'LyraEquipmentInstance' in parent:
+            kind = "EquipInst-BP"
+        else:
+            continue
+        rows.append({"kind": kind, "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad),
+                     "parent": parent, "hints": []})
+    for cp in _native_classes_derived_from(_LYRA_EQUIPMENT_DEF_CP):
+        rows.append({"kind": "EquipDef-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_LYRA_WEAPON_INSTANCE_CP):
+        rows.append({"kind": "WeaponInst-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    return rows
+
+
+def _format_equipment(rows):
+    _hr_section("Equipment / Weapons", len(rows))
+    for r in rows:
+        if r.get("parent"):
+            _emit_full(r)
+        else:
+            _emit_compact(r)
+
+
+# ─── CATEGORY: INVENTORY (LYRA ITEM DEFS / FRAGMENT KINDS) ──────────────────
+
+def _scan_inventory():
+    """ULyraInventoryItemDefinition BPs + native fragment subclasses.
+
+    Items are typically Blueprint subclasses of ULyraInventoryItemDefinition
+    rather than data assets, so we filter BPs by parent. Fragment classes
+    are inline-instanced subobjects of items (not assets), so we enumerate
+    the available fragment SUBCLASSES — that tells callers what kinds of
+    behavior items can be composed from.
+    """
+    paths = _lyra_scan_paths()
+    bps = _filter_assets_multi(_BLUEPRINT_CP, paths)
+    rows = []
+    for ad in bps:
+        parent = _bp_parent_class_path(ad)
+        if parent and 'LyraInventoryItemDefinition' in parent:
+            rows.append({"kind": "ItemDef-BP", "name": str(ad.asset_name),
+                         "path": _asset_full_path(ad),
+                         "parent": parent, "hints": []})
+    for cp in _native_classes_derived_from(_LYRA_INV_ITEM_DEF_CP):
+        rows.append({"kind": "ItemDef-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for cp in _native_classes_derived_from(_LYRA_INV_FRAGMENT_CP):
+        rows.append({"kind": "Fragment-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    return rows
+
+
+def _format_inventory(rows):
+    _hr_section("Inventory (Items / Fragment Kinds)", len(rows))
+    for r in rows:
+        if r.get("parent"):
+            _emit_full(r)
+        else:
+            _emit_compact(r)
+
+
+# ─── CATEGORY: GAME FEATURES ────────────────────────────────────────────────
+
+def _scan_gamefeatures():
+    """UGameFeatureData assets, native UGameFeatureAction subclasses, and
+    .uplugin file enumeration of Plugins/GameFeatures/.
+
+    The .uplugin walk is the only way to know which feature plugins are
+    physically present; the Editor's enabled/disabled state changes at
+    runtime and isn't inspected here. Combine with _scan_experience() to
+    see which features each Experience pulls in.
+    """
+    paths = _lyra_scan_paths()
+    rows = []
+    for ad in _filter_assets_multi(_GAME_FEATURE_DATA_CP, paths):
+        rows.append({"kind": "FeatureData", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    for cp in _native_classes_derived_from(_GAME_FEATURE_ACTION_CP):
+        rows.append({"kind": "Action-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    for mount in _lyra_plugin_mount_points():
+        rows.append({"kind": "Plugin", "name": mount.lstrip("/"),
+                     "path": f"Plugins/GameFeatures/{mount.lstrip('/')}"})
+    return rows
+
+
+def _format_gamefeatures(rows):
+    _hr_section("Game Features", len(rows))
+    for r in rows:
+        if r.get("parent"):
+            _emit_full(r)
+        else:
+            _emit_compact(r)
+
+
+# ─── CATEGORY: INPUT CONFIG (LYRA TAG → IA WIRING) ──────────────────────────
+
+def _scan_input_config():
+    """ULyraInputConfig data assets — tag → InputAction maps that bind
+    GameplayTag-named abilities to physical inputs. Distinct from raw
+    InputAction/IMC scanning under the 'input' category."""
+    paths = _lyra_scan_paths()
+    rows = []
+    for ad in _filter_assets_multi(_LYRA_INPUT_CONFIG_CP, paths):
+        rows.append({"kind": "InputConfig", "name": str(ad.asset_name),
+                     "path": _asset_full_path(ad)})
+    return rows
+
+
+def _format_input_config(rows):
+    _hr_section("Lyra Input Config", len(rows))
+    for r in rows:
+        _emit_compact(r)
+
+
+# ─── CATEGORY: CAMERA MODES ─────────────────────────────────────────────────
+
+def _scan_camera():
+    """ULyraCameraMode BP children + native subclasses. Camera modes are
+    referenced from LyraPawnData and switched at runtime by abilities."""
+    paths = _lyra_scan_paths()
+    bps = _filter_assets_multi(_BLUEPRINT_CP, paths)
+    rows = []
+    for ad in bps:
+        parent = _bp_parent_class_path(ad)
+        if parent and 'LyraCameraMode' in parent:
+            rows.append({"kind": "CameraMode-BP", "name": str(ad.asset_name),
+                         "path": _asset_full_path(ad),
+                         "parent": parent, "hints": []})
+    for cp in _native_classes_derived_from(_LYRA_CAMERA_MODE_CP):
+        rows.append({"kind": "CameraMode-C++", "name": _short_class_name(cp),
+                     "path": cp, "parent": None, "hints": []})
+    return rows
+
+
+def _format_camera(rows):
+    _hr_section("Camera Modes", len(rows))
+    for r in rows:
+        if r.get("parent"):
+            _emit_full(r)
+        else:
+            _emit_compact(r)
+
+
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 # (scan_fn, format_fn) per category. Scans return list[dict]; formats log them.
 _CATEGORY_FN = {
-    "player":    (_scan_player_characters, _format_player_characters),
-    "enemy":     (_scan_enemy_npc,         _format_enemy_npc),
-    "damage":    (_scan_damage_system,     _format_damage_system),
-    "animation": (_scan_animation,         _format_animation),
-    "input":     (_scan_input,             _format_input),
+    "player":       (_scan_player_characters, _format_player_characters),
+    "enemy":        (_scan_enemy_npc,         _format_enemy_npc),
+    "damage":       (_scan_damage_system,     _format_damage_system),
+    "animation":    (_scan_animation,         _format_animation),
+    "input":        (_scan_input,             _format_input),
+    "gas":          (_scan_gas,               _format_gas),
+    "experience":   (_scan_experience,        _format_experience),
+    "equipment":    (_scan_equipment,         _format_equipment),
+    "inventory":    (_scan_inventory,         _format_inventory),
+    "gamefeatures": (_scan_gamefeatures,      _format_gamefeatures),
+    "input_config": (_scan_input_config,      _format_input_config),
+    "camera":       (_scan_camera,            _format_camera),
 }
 
 
 def dc_inspect_project(topic=None, silent=False):
     """Read-only scan of the current UE project.
 
-    topic — None or 'all' runs every category. Single-category aliases:
-        'player', 'enemy'/'ai', 'damage'/'combat', 'animation', 'input'.
+    topic — None runs the original 5 categories (player/enemy/damage/
+        animation/input). 'all' adds the 7 Lyra/GAS categories. 'lyra' runs
+        only the Lyra/GAS categories. Single-category aliases:
+        'player', 'enemy'/'ai', 'damage'/'combat', 'animation', 'input',
+        'gas'/'abilities', 'experience', 'equipment', 'inventory',
+        'gamefeatures', 'input_config', 'camera'.
 
     silent — if False (default), logs a structured report to the Output Log
         and returns None. If True, suppresses logging and returns a dict
@@ -490,11 +853,18 @@ def format_scan_for_llm(scan):
         - ADCCharacterBase [C++, /Script/DeltaCode.DCCharacterBase]
     """
     titles = (
-        ("player",    "Player Characters"),
-        ("enemy",     "Enemy / NPC"),
-        ("damage",    "Damage System"),
-        ("animation", "Animation"),
-        ("input",     "Input"),
+        ("player",       "Player Characters"),
+        ("enemy",        "Enemy / NPC"),
+        ("damage",       "Damage System"),
+        ("animation",    "Animation"),
+        ("input",        "Input"),
+        ("gas",          "GAS (Abilities / Effects / Attributes / Cues)"),
+        ("experience",   "Experience / PawnData"),
+        ("equipment",    "Equipment / Weapons"),
+        ("inventory",    "Inventory (Items / Fragment Kinds)"),
+        ("gamefeatures", "Game Features"),
+        ("input_config", "Lyra Input Config"),
+        ("camera",       "Camera Modes"),
     )
     lines = ["# DeltaCode Project Scan", ""]
     for cat, title in titles:
