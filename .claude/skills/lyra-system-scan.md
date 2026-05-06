@@ -2,42 +2,50 @@
 # DeltaCode Plugin — Captured Scan of DeltaCodeLyra (UE5 Lyra Starter Game)
 
 ## Purpose
-This is the raw output of `dc_inspect_project.write_scan_for_llm()` run inside
-DeltaCodeLyra (UE5 Lyra Starter Game with the DeltaCode plugin installed). It
-is the canonical reference for what the *current* Inspector surfaces in a
-Lyra-based project, as of 2026-05-05.
+This is the raw output of `dc_inspect_project.write_scan_for_llm(topic="all")`
+run inside DeltaCodeLyra (UE5 Lyra Starter Game with the DeltaCode plugin
+installed). It is the canonical reference for what the Inspector surfaces in
+a Lyra-based project, as of 2026-05-05.
 
-The scan is a snapshot, not a contract. When the Inspector is extended
-(see `dc_inspect_project.py`) or Lyra is updated, regenerate by running
-`dc_inspect_project.write_scan_for_llm(<this_path>, topic="all")` from the
-UE5 Python console.
+The scan is a snapshot, not a contract. To regenerate, run from the UE5
+Python console:
 
-## Known Inspector Blind Spots (visible in this scan)
-- **Player Characters: 0** — Lyra drives pawn selection through the Experience
-  system (`ULyraExperienceDefinition` → `ULyraPawnData` → `PawnClass`), not via
-  `GameMode.DefaultPawnClass`. The current heuristic misses this entirely.
-- **Enemy/NPC misclassifies player content** — `Character_Default`,
-  `B_Hero_Default`, `B_SimpleHeroPawn`, `B_ShootingTarget` land here because
-  they parent off `LyraCharacter`/`LyraCharacterWithAbilities` and don't trip
-  the "Player" name heuristic.
-- **Damage System is name-only** — catches `GE_Damage_*` BPs but misses all
-  `UAttributeSet` subclasses (`ULyraHealthSet`, `ULyraCombatSet`) and the
-  bulk of `UGameplayEffect` BPs.
-- **No GAS coverage** — abilities (`UGameplayAbility` / `ULyraGameplayAbility`),
-  ability sets (`ULyraAbilitySet`), and gameplay cues are all invisible.
-- **No Experience / PawnData / InputConfig coverage** — the wiring between
-  experiences, action sets, pawn data, and input configs isn't surfaced.
-- **No Equipment / Inventory coverage** — `ULyraEquipmentDefinition`,
-  `ULyraInventoryItemDefinition`, weapon instances are all missed.
-- **No Game Feature coverage** — `UGameFeatureData` per plugin and the
-  enabled `.uplugin` set under `Plugins/GameFeatures/` are not enumerated.
-- **Plugin content paths missed** — the scan is `/Game/`-only, so all assets
-  under `/ShooterCore/`, `/ShooterMaps/`, `/ShooterTests/`, `/ShooterExplorer/`,
-  `/TopDownArena/` are absent.
+```python
+import importlib, dc_inspect_project
+importlib.reload(dc_inspect_project)
+dc_inspect_project.write_scan_for_llm(
+    r"/Users/londo/Documents/DeltaCode/.claude/skills/lyra-system-scan.md",
+    topic="all")
+```
 
-These blind spots are addressed by the Lyra extensions to
-`dc_inspect_project.py` (see new categories: `gas`, `experience`,
-`equipment`, `inventory`, `gamefeatures`, `input_config`, `camera`).
+## Category Index (with counts at scan time)
+- **Player Characters (0)** — Lyra drives pawn selection through Experience
+  → PawnData → PawnClass, not GameMode.DefaultPawnClass. The 0 count is
+  expected; consult the *Experience / PawnData* section instead.
+- **Enemy / NPC (7)** — Includes Lyra cosmetic/character-part components
+  and player BPs (`Character_Default`, `B_Hero_Default`) because they
+  parent off `LyraCharacter` and don't trip the player-name heuristic.
+  Disambiguate with the Experience/PawnData section.
+- **Damage System (10)** — Name-based heuristic (`*Damage*`, `*Health*`).
+  For full GAS damage chain see *GAS* + *Equipment / Weapons*.
+- **Animation (667)** — High volume, primarily Mannequin + weapon anims.
+- **Input (12)** — Raw `InputAction` assets. Tag→IA wiring lives in
+  *Lyra Input Config*.
+- **GAS (Abilities / Effects / Attributes / Cues) (91)** — Full GAS
+  surface: `GA_*` abilities, `GE_*` effects, `GCN*` cues, `AbilitySet_*`.
+- **Experience / PawnData (11)** — `LyraExperienceDefinition`,
+  `LyraExperienceActionSet`, `LyraPawnData` data assets — the layer that
+  selects what game features, abilities, pawn class, input, and camera
+  are active for a session.
+- **Equipment / Weapons (6)** — `WID_*` equipment definitions
+  (`LyraEquipmentDefinition` BPs).
+- **Inventory (Items / Fragment Kinds) (7)** — `ID_*` item definitions
+  plus native fragment subclasses.
+- **Game Features (10)** — 5 `UGameFeatureData` assets paired with their
+  5 `.uplugin` files (ShooterCore, ShooterExplorer, ShooterMaps,
+  ShooterTests, TopDownArena).
+- **Lyra Input Config (5)** — `InputData_*` tag→IA maps.
+- **Camera Modes (4)** — `CM_*` camera mode BPs.
 
 ---
 
@@ -751,3 +759,151 @@ These blind spots are addressed by the Lyra extensions to
 - IA_Move [IA, /Game/Input/Actions/IA_Move]
 - IA_AutoRun [IA, /Game/Input/Actions/IA_AutoRun]
 - IMC_Default [IMC, /Game/Input/Mappings/IMC_Default]
+
+## GAS (Abilities / Effects / Attributes / Cues) (91)
+- GCN_Test_BurstLatent [GC-BP, /Game/GameplayCueNotifies/GCN_Test_BurstLatent] parent: GameplayCueNotify_BurstLatent'
+- GCN_Test_Burst [GC-BP, /Game/GameplayCueNotifies/GCN_Test_Burst] parent: GameplayCueNotify_Burst'
+- GCNL_Test_Looping [GC-BP, /Game/GameplayCueNotifies/GCNL_Test_Looping] parent: GameplayCueNotify_Looping'
+- GCN_Character_Heal [GC-BP, /Game/GameplayCueNotifies/GCN_Character_Heal] parent: GameplayCueNotify_BurstLatent'
+- GCN_Weapon_Impact [GC-BP, /Game/GameplayCueNotifies/GCN_Weapon_Impact] parent: GameplayCueNotify_Burst'
+- GCNL_Widget_Base [GC-BP, /Game/GameplayCueNotifies/GCNL_Widget_Base] parent: GameplayCueNotify_Looping'
+- GameplayEffectParent_Damage_Basic [GE-BP, /Game/GameplayEffects/Damage/GameplayEffectParent_Damage_Basic] parent: GameplayEffect'
+- GE_Damage_Basic_Instant [GE-BP, /Game/GameplayEffects/Damage/GE_Damage_Basic_Instant] parent: GameplayEffectParent_Damage_Basic_C'
+- GCNL_Character_DamageTaken [GC-BP, /Game/GameplayCueNotifies/GCNL_Character_DamageTaken] parent: GameplayCueNotify_BurstLatent'
+- GA_AbilityWithWidget [GA-BP, /Game/Characters/Heroes/Abilities/GA_AbilityWithWidget] parent: LyraGameplayAbility'
+- GA_Hero_Death [GA-BP, /Game/Characters/Heroes/Abilities/GA_Hero_Death] parent: LyraGameplayAbility_Death'
+- GA_Hero_Heal [GA-BP, /Game/Characters/Heroes/Abilities/GA_Hero_Heal] parent: LyraGameplayAbility'
+- GA_Hero_Jump [GA-BP, /Game/Characters/Heroes/Abilities/GA_Hero_Jump] parent: LyraGameplayAbility_Jump'
+- GE_Damage_Basic_Periodic [GE-BP, /Game/GameplayEffects/Damage/GE_Damage_Basic_Periodic] parent: GameplayEffectParent_Damage_Basic_C'
+- GE_Damage_Basic_SetByCaller [GE-BP, /Game/GameplayEffects/Damage/GE_Damage_Basic_SetByCaller] parent: GameplayEffectParent_Damage_Basic_C'
+- GE_Heal_Instant [GE-BP, /Game/GameplayEffects/Heal/GE_Heal_Instant] parent: GameplayEffectParent_Heal_C'
+- GE_Heal_Periodic [GE-BP, /Game/GameplayEffects/Heal/GE_Heal_Periodic] parent: GameplayEffectParent_Heal_C'
+- GameplayEffectParent_Heal [GE-BP, /Game/GameplayEffects/Heal/GameplayEffectParent_Heal] parent: GameplayEffect'
+- GE_Heal_SetByCaller [GE-BP, /Game/GameplayEffects/Heal/GE_Heal_SetByCaller] parent: GameplayEffectParent_Heal_C'
+- GE_HeroDash_Cooldown [GE-BP, /Game/GameplayEffects/GE_HeroDash_Cooldown] parent: GameplayEffect'
+- GE_GameplayCueTest_Burst [GE-BP, /Game/GameplayEffects/GE_GameplayCueTest_Burst] parent: GameplayEffect'
+- GE_GameplayCueTest_BurstLatent [GE-BP, /Game/GameplayEffects/GE_GameplayCueTest_BurstLatent] parent: GameplayEffect'
+- GE_DynamicTag [GE-BP, /Game/GameplayEffects/GE_DynamicTag] parent: GameplayEffect'
+- GE_IsPlayer [GE-BP, /Game/GameplayEffects/GE_IsPlayer] parent: GameplayEffect'
+- GE_GameplayCueTest_Looping [GE-BP, /Game/GameplayEffects/GE_GameplayCueTest_Looping] parent: GameplayEffect'
+- GE_BlockAbilityInput [GE-BP, /Game/GameplayEffects/GE_BlockAbilityInput] parent: GameplayEffect'
+- GE_HugeHealthTarget [GE-BP, /Game/Weapons/Tests/GE_HugeHealthTarget] parent: GameplayEffect'
+- GE_Damage_Pistol [GE-BP, /Game/Weapons/Pistol/GE_Damage_Pistol] parent: GE_Damage_Basic_Instant_C'
+- GA_Weapon_Fire [GA-BP, /Game/Weapons/GA_Weapon_Fire] parent: LyraGameplayAbility_RangedWeapon'
+- GA_Weapon_AutoReload [GA-BP, /Game/Weapons/GA_Weapon_AutoReload] parent: LyraGameplayAbility_FromEquipment'
+- GA_Weapon_ReloadMagazine [GA-BP, /Game/Weapons/GA_Weapon_ReloadMagazine] parent: LyraGameplayAbility_FromEquipment'
+- GE_GameplayEffectPad_Heal [GE-BP, /Game/Environments/Gameplay/GE_GameplayEffectPad_Heal] parent: GE_Heal_Periodic_C'
+- B_GameplayEffectPad_Child_Healing [GE-BP, /Game/Environments/Gameplay/B_GameplayEffectPad_Child_Healing] parent: BP_GameplayEffectPad_C'
+- GE_GameplayEffectPad_Damage [GE-BP, /Game/Environments/Gameplay/GE_GameplayEffectPad_Damage] parent: GE_Damage_Basic_Periodic_C'
+- GCN_Weapon_MeleeImpact [GC-BP, /ShooterCore/GameplayCues/GCN_Weapon_MeleeImpact] parent: GameplayCueNotify_Burst'
+- GCNL_Dash [GC-BP, /ShooterCore/GameplayCues/GCNL_Dash] parent: GameplayCueNotify_BurstLatent'
+- GCNL_Launcher_Activate [GC-BP, /ShooterCore/GameplayCues/GCNL_Launcher_Activate] parent: GameplayCueNotify_BurstLatent'
+- GCNL_Death [GC-BP, /ShooterCore/GameplayCues/GCNL_Death] parent: GameplayCueNotify_BurstLatent'
+- GCNL_Spawning [GC-BP, /ShooterCore/GameplayCues/GCNL_Spawning] parent: GameplayCueNotify_Looping'
+- GE_Damage_Grenade [GE-BP, /ShooterCore/Weapons/Grenade/GE_Damage_Grenade] parent: GE_Damage_Basic_Instant_C'
+- GCN_InteractPickUp [GC-BP, /ShooterCore/GameplayCues/GCN_InteractPickUp] parent: GameplayCueNotify_Burst'
+- GCN_Grenade_Detonate [GC-BP, /ShooterCore/Weapons/Grenade/GCN_Grenade_Detonate] parent: GameplayCueNotify_Burst'
+- GCN_Weapon_Pistol_Fire [GC-BP, /ShooterCore/Weapons/Pistol/GCN_Weapon_Pistol_Fire] parent: GameplayCueNotify_Burst'
+- GCN_Weapon_Rifle_Fire [GC-BP, /ShooterCore/Weapons/Rifle/GCN_Weapon_Rifle_Fire] parent: GameplayCueNotify_Burst'
+- GCN_Weapon_Shotgun_Fire [GC-BP, /ShooterCore/Weapons/Shotgun/GCN_Weapon_Shotgun_Fire] parent: GameplayCueNotify_Burst'
+- GCN_Weapon_Melee [GC-BP, /ShooterCore/GameplayCues/GCN_Weapon_Melee] parent: GameplayCueNotify_Burst'
+- GCNL_Teleporter_Activate [GC-BP, /ShooterCore/GameplayCues/GCNL_Teleporter_Activate] parent: GameplayCueNotify_BurstLatent'
+- GE_InstantHeal_Big [GE-BP, /ShooterCore/Items/HealthPickup/GE_InstantHeal_Big] parent: GameplayEffectParent_Heal_C'
+- GE_InstantHeal_Part [GE-BP, /ShooterCore/Items/HealthPickup/GE_InstantHeal_Part] parent: GameplayEffectParent_Heal_C'
+- GE_InstantHeal_Pickup [GE-BP, /ShooterCore/Items/HealthPickup/GE_InstantHeal_Pickup] parent: GameplayEffectParent_Heal_C'
+- GA_HealPickup [GA-BP, /ShooterCore/Items/HealthPickup_Unused/GA_HealPickup] parent: LyraGameplayAbility_RangedWeapon'
+- GE_Damage_Melee [GE-BP, /ShooterCore/Weapons/GE_Damage_Melee] parent: GE_Damage_Basic_Instant_C'
+- GE_Damage_Shotgun [GE-BP, /ShooterCore/Weapons/Shotgun/GE_Damage_Shotgun] parent: GE_Damage_Basic_Instant_C'
+- GE_DamageImmunity_FromGameMode [GE-BP, /ShooterCore/Experiences/Phases/GE_DamageImmunity_FromGameMode] parent: GameplayEffect'
+- GE_Damage_RifleAuto [GE-BP, /ShooterCore/Weapons/Rifle/GE_Damage_RifleAuto] parent: GE_Damage_Basic_Instant_C'
+- GE_Grenade_Cooldown [GE-BP, /ShooterCore/Weapons/Grenade/GE_Grenade_Cooldown] parent: GameplayEffect'
+- GA_SpawnEffect [GA-BP, /ShooterCore/Game/Respawn/GA_SpawnEffect] parent: LyraGameplayAbility'
+- GA_AutoRespawn [GA-BP, /ShooterCore/Game/Respawn/GA_AutoRespawn] parent: LyraGameplayAbility'
+- GA_QuickbarSlots [GA-BP, /ShooterCore/Game/GA_QuickbarSlots] parent: LyraGameplayAbility'
+- GA_DropWeapon [GA-BP, /ShooterCore/Input/Abilities/GA_DropWeapon] parent: LyraGameplayAbility'
+- GAB_ShowWidget_WhenInputPressed [GA-BP, /ShooterCore/Input/Abilities/GAB_ShowWidget_WhenInputPressed] parent: LyraGameplayAbility'
+- GAB_ShowWidget_WhileInputHeld [GA-BP, /ShooterCore/Input/Abilities/GAB_ShowWidget_WhileInputHeld] parent: LyraGameplayAbility'
+- GA_Grenade [GA-BP, /ShooterCore/Input/Abilities/GA_Grenade] parent: LyraGameplayAbility'
+- GA_Interaction_Sit [GA-BP, /ShooterExplorer/Interact/GA_Interaction_Sit] parent: LyraGameplayAbility'
+- GA_Interaction_Collect [GA-BP, /ShooterExplorer/Interact/GA_Interaction_Collect] parent: LyraGameplayAbility'
+- GA_ToggleMarkerInWorld [GA-BP, /ShooterExplorer/Input/Abilities/GA_ToggleMarkerInWorld] parent: LyraGameplayAbility'
+- GA_Interact [GA-BP, /ShooterExplorer/Input/Abilities/GA_Interact] parent: LyraGameplayAbility_Interact'
+- GC_Collect_Effect [GC-BP, /ShooterMaps/GameplayCues/GC_Collect_Effect] parent: GameplayCueNotify_Actor'
+- GCN_PickupAcquired [GC-BP, /TopDownArena/GameplayCues/GCN_PickupAcquired] parent: GameplayCueNotify_Burst'
+- GA_ArenaHero_Death [GA-BP, /TopDownArena/Game/GA_ArenaHero_Death] parent: LyraGameplayAbility_Death'
+- GET_ArenaPickup_Base [GE-BP, /TopDownArena/Game/Pickups/GET_ArenaPickup_Base] parent: GameplayEffect'
+- GE_Damaged_By_Bomb [GE-BP, /TopDownArena/Game/Bombs/GE_Damaged_By_Bomb] parent: GameplayEffectParent_Damage_Basic_C'
+- GE_IncrementBombsRemaining [GE-BP, /TopDownArena/Game/Bombs/GE_IncrementBombsRemaining] parent: GameplayEffect'
+- GE_DecrementBombsRemaining [GE-BP, /TopDownArena/Game/Bombs/GE_DecrementBombsRemaining] parent: GameplayEffect'
+- GA_DropBomb [GA-BP, /TopDownArena/Game/Bombs/GA_DropBomb] parent: LyraGameplayAbility'
+- GE_Stat_FireRange [GE-BP, /TopDownArena/Game/Powerups/GE_Stat_FireRange] parent: GameplayEffect'
+- GE_Stat_BombCount [GE-BP, /TopDownArena/Game/Powerups/GE_Stat_BombCount] parent: GameplayEffect'
+- GE_Warmup [GE-BP, /TopDownArena/Game/Modes/GE_Warmup] parent: GameplayEffect'
+- GE_Stat_MoveSpeed [GE-BP, /TopDownArena/Game/Powerups/GE_Stat_MoveSpeed] parent: GameplayEffect'
+- ShootingTarget_AbilitySet [AbilitySet, /Game/Weapons/Tests/ShootingTarget_AbilitySet]
+- AS_InstantHeal [AbilitySet, /Game/Environments/Gameplay/AS_InstantHeal]
+- AbilitySet_Elimination [AbilitySet, /ShooterCore/Elimination/AbilitySet_Elimination]
+- AbilitySet_ControlPoint [AbilitySet, /ShooterCore/ControlPoint/AbilitySet_ControlPoint]
+- AbilitySet_ShooterHero [AbilitySet, /ShooterCore/Game/AbilitySet_ShooterHero]
+- AbilitySet_ShooterNetShooter [AbilitySet, /ShooterCore/Weapons/NetShooter_PROTO/AbilitySet_ShooterNetShooter]
+- AbilitySet_ShooterPistol [AbilitySet, /ShooterCore/Weapons/Pistol/AbilitySet_ShooterPistol]
+- AbilitySet_ShooterRifle [AbilitySet, /ShooterCore/Weapons/Rifle/AbilitySet_ShooterRifle]
+- AbilitySet_ShooterShotgun [AbilitySet, /ShooterCore/Weapons/Shotgun/AbilitySet_ShooterShotgun]
+- AbilitySet_HealPickup [AbilitySet, /ShooterCore/Items/HealthPickup_Unused/AbilitySet_HealPickup]
+- AbilitySet_InventoryTest [AbilitySet, /ShooterExplorer/Input/Abilities/AbilitySet_InventoryTest]
+- AbilitySet_Arena [AbilitySet, /TopDownArena/Game/AbilitySet_Arena]
+
+## Experience / PawnData (11)
+- EAS_BasicShooterAcolades [ActionSet, /ShooterCore/Accolades/EAS_BasicShooterAcolades]
+- LAS_ShooterGame_SharedInput [ActionSet, /ShooterCore/Experiences/LAS_ShooterGame_SharedInput]
+- LAS_ShooterGame_StandardComponents [ActionSet, /ShooterCore/Experiences/LAS_ShooterGame_StandardComponents]
+- LAS_ShooterGame_StandardHUD [ActionSet, /ShooterCore/Experiences/LAS_ShooterGame_StandardHUD]
+- LAS_InventoryTest [ActionSet, /ShooterExplorer/System/Experiences/LAS_InventoryTest]
+- DefaultPawnData_EmptyPawn [PawnData, /Game/Characters/Heroes/EmptyPawnData/DefaultPawnData_EmptyPawn]
+- SimplePawnData [PawnData, /Game/Characters/Heroes/SimplePawnData/SimplePawnData]
+- ShootingTarget_PawnData [PawnData, /Game/Weapons/Tests/ShootingTarget_PawnData]
+- HeroData_ShooterGame [PawnData, /ShooterCore/Game/HeroData_ShooterGame]
+- HeroData_Explorer [PawnData, /ShooterExplorer/Game/HeroData_Explorer]
+- HeroData_Arena [PawnData, /TopDownArena/Game/HeroData_Arena]
+
+## Equipment / Weapons (6)
+- WID_HealPickup [EquipDef-BP, /ShooterCore/Items/HealthPickup_Unused/WID_HealPickup] parent: LyraEquipmentDefinition'
+- WID_InstantHeal [EquipDef-BP, /ShooterCore/Weapons/WID_InstantHeal] parent: LyraEquipmentDefinition'
+- WID_Shotgun [EquipDef-BP, /ShooterCore/Weapons/Shotgun/WID_Shotgun] parent: LyraEquipmentDefinition'
+- WID_Rifle [EquipDef-BP, /ShooterCore/Weapons/Rifle/WID_Rifle] parent: LyraEquipmentDefinition'
+- WID_Pistol [EquipDef-BP, /ShooterCore/Weapons/Pistol/WID_Pistol] parent: LyraEquipmentDefinition'
+- WID_NetShooter [EquipDef-BP, /ShooterCore/Weapons/NetShooter_PROTO/WID_NetShooter] parent: LyraEquipmentDefinition'
+
+## Inventory (Items / Fragment Kinds) (7)
+- ID_HealPickup [ItemDef-BP, /ShooterCore/Items/HealthPickup_Unused/ID_HealPickup] parent: LyraInventoryItemDefinition'
+- ID_Shotgun [ItemDef-BP, /ShooterCore/Weapons/Shotgun/ID_Shotgun] parent: LyraInventoryItemDefinition'
+- ID_Rifle [ItemDef-BP, /ShooterCore/Weapons/Rifle/ID_Rifle] parent: LyraInventoryItemDefinition'
+- ID_Pistol [ItemDef-BP, /ShooterCore/Weapons/Pistol/ID_Pistol] parent: LyraInventoryItemDefinition'
+- ID_NetShooter [ItemDef-BP, /ShooterCore/Weapons/NetShooter_PROTO/ID_NetShooter] parent: LyraInventoryItemDefinition'
+- TestID_Rock [ItemDef-BP, /ShooterExplorer/Items/TestID_Rock] parent: LyraInventoryItemDefinition'
+- TestID_Tree [ItemDef-BP, /ShooterExplorer/Items/TestID_Tree] parent: LyraInventoryItemDefinition'
+
+## Game Features (10)
+- ShooterCore [FeatureData, /ShooterCore/ShooterCore]
+- ShooterExplorer [FeatureData, /ShooterExplorer/ShooterExplorer]
+- ShooterMaps [FeatureData, /ShooterMaps/ShooterMaps]
+- ShooterTests [FeatureData, /ShooterTests/ShooterTests]
+- TopDownArena [FeatureData, /TopDownArena/TopDownArena]
+- ShooterCore [Plugin, Plugins/GameFeatures/ShooterCore]
+- ShooterExplorer [Plugin, Plugins/GameFeatures/ShooterExplorer]
+- ShooterMaps [Plugin, Plugins/GameFeatures/ShooterMaps]
+- ShooterTests [Plugin, Plugins/GameFeatures/ShooterTests]
+- TopDownArena [Plugin, Plugins/GameFeatures/TopDownArena]
+
+## Lyra Input Config (5)
+- InputData_Hero [InputConfig, /Game/Input/InputData_Hero]
+- InputData_SimplePawn [InputConfig, /Game/Input/InputData_SimplePawn]
+- InputData_ShooterGame_AddOns [InputConfig, /ShooterCore/Input/Actions/InputData_ShooterGame_AddOns]
+- InputData_InventoryTest [InputConfig, /ShooterExplorer/Input/Actions/InputData_InventoryTest]
+- InputData_Arena [InputConfig, /TopDownArena/Game/InputData_Arena]
+
+## Camera Modes (4)
+- CM_ThirdPerson_Death [CameraMode-BP, /Game/Characters/Cameras/CM_ThirdPerson_Death] parent: LyraCameraMode_ThirdPerson'
+- CM_ThirdPerson [CameraMode-BP, /Game/Characters/Cameras/CM_ThirdPerson] parent: LyraCameraMode_ThirdPerson'
+- CM_ThirdPersonADS [CameraMode-BP, /ShooterCore/Camera/CM_ThirdPersonADS] parent: LyraCameraMode_ThirdPerson'
+- CM_ArenaFramingCamera [CameraMode-BP, /TopDownArena/Game/CM_ArenaFramingCamera] parent: LyraCameraMode_TopDownArenaCamera'
