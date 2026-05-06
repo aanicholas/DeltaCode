@@ -80,4 +80,11 @@ namespace FDCGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Interaction_QuestGiver,
 		"Interaction.QuestGiver",
 		"Target is a quest-giving NPC.");
+
+	// ── Damage tags ─────────────────────────────────────────────────────────
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Lethal,
+		"Damage.Lethal",
+		"Granted by GE_DC_Kill — signals an instant-kill damage event "
+		"regardless of remaining HP. Listened to by death cues / "
+		"execution VFX.");
 }

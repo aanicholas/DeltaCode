@@ -126,6 +126,11 @@ private:
 	/** Safe Mode "Run Inspector" — read-only project scan via Python bridge. */
 	FReply OnRunInspectorClicked();
 
+	/** Safe Mode "Setup Lyra Integration" — one-click DeltaCode → Lyra
+	 *  assets via dc_setup_lyra.py. Visible only when LyraGame module
+	 *  is loaded. Idempotent — safe to re-run. */
+	FReply OnSetupLyraClicked();
+
 	/**
 	 * Safe Mode "Ask DeltaCode" — runs the inspector silently, prepends the
 	 * formatted scan to the user's prompt, sends to Anthropic with the Ask
@@ -150,6 +155,7 @@ private:
 	EVisibility GetTemplateRowVisibility() const;
 	EVisibility GetDangerWarningVisibility() const;
 	EVisibility GetInspectorRowVisibility() const;
+	EVisibility GetSetupLyraVisibility() const;
 	EVisibility GetSpinnerVisibility() const;
 
 	FText GetStatusText() const       { return StatusText; }

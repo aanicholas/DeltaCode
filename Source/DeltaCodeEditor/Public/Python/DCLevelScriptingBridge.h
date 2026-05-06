@@ -85,6 +85,21 @@ public:
 	                               FString& OutFormattedScan,
 	                               FString& OutMessage);
 
+	/**
+	 * Run dc_setup_lyra.py — one-click DeltaCode → Lyra integration
+	 * setup. Idempotent: detects existing assets and reuses them.
+	 * Verbose output goes to the Output Log; OutMessage is a single-line
+	 * summary for the panel status bar.
+	 */
+	static bool ExecuteLyraSetup(FString& OutMessage);
+
+	/**
+	 * True when the LyraGame runtime module is loaded — used as the
+	 * visibility gate for the "Setup Lyra Integration" panel button so
+	 * non-Lyra projects don't see it.
+	 */
+	static bool IsLyraProjectDetected();
+
 	/** Absolute path to dc_danger_zone.py inside the plugin's Content/Python folder. */
 	static FString GetScriptPath();
 

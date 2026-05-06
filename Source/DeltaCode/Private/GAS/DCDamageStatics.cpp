@@ -88,7 +88,10 @@ float UDCDamageStatics::ApplyTieredDamageViaASC(UAbilitySystemComponent* TargetA
 	SpecHandle.Data->DynamicAssetTags.AppendTags(SourceTags);
 
 	const float Magnitude = Config.ResolveMagnitude(Tier);
-	if (Tier != EDCDamageTier::Lethal && Config.SetByCallerMagnitudeTag.IsValid())
+	// Lethal goes through SetByCaller too — GE_DC_Kill is a duplicate of
+	// Lyra's GE_Damage_Basic_SetByCaller, so it expects the magnitude tag
+	// to be set. The sentinel magnitude (~999999) ensures clamp-to-zero.
+	if (Config.SetByCallerMagnitudeTag.IsValid())
 	{
 		SpecHandle.Data->SetSetByCallerMagnitude(
 			Config.SetByCallerMagnitudeTag, Magnitude);

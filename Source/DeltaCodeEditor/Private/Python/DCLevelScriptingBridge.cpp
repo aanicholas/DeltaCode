@@ -22,6 +22,7 @@
 #include "Interfaces/IPluginManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 
 #define LOCTEXT_NAMESPACE "DCLevelScriptingBridge"
 
@@ -30,6 +31,7 @@ namespace DCLevelScriptingBridgePrivate
 	static const TCHAR* PluginName             = TEXT("DeltaCode");
 	static const TCHAR* DangerZoneScriptPath   = TEXT("Content/Python/dc_danger_zone.py");
 	static const TCHAR* InspectorScriptPath    = TEXT("Content/Python/dc_inspect_project.py");
+	static const TCHAR* SetupLyraScriptPath    = TEXT("Content/Python/dc_setup_lyra.py");
 
 	/** Resolve a path inside the plugin Content/ folder to its absolute form. */
 	static FString ResolvePluginScript(const TCHAR* RelativePath)
@@ -331,6 +333,63 @@ bool FDCLevelScriptingBridge::ExecuteProjectInspector(EDCInspectorTopic Topic, F
 	}
 
 	return bOk;
+}
+
+bool FDCLevelScriptingBridge::ExecuteLyraSetup(FString& OutMessage)
+{
+	using namespace DCLevelScriptingBridgePrivate;
+
+	if (!IsPythonAvailable())
+	{
+		OutMessage = TEXT(
+			"Python Script Plugin is not available. Enable it under "
+			"Edit > Plugins > Scripting > Python Editor Script Plugin, then restart the editor.");
+		UE_LOG(LogDeltaCodeEditor, Warning, TEXT("[SetupLyra] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString ScriptPath = ResolvePluginScript(SetupLyraScriptPath);
+
+	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*ScriptPath))
+	{
+		OutMessage = FString::Printf(
+			TEXT("DeltaCode setup script not found at %s."), *ScriptPath);
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[SetupLyra] %s"), *OutMessage);
+		return false;
+	}
+
+	const FString Command = FString::Printf(
+		TEXT("import importlib.util; "
+		     "_dc_spec = importlib.util.spec_from_file_location('dc_setup_lyra', r'%s'); "
+		     "_dc_mod = importlib.util.module_from_spec(_dc_spec); "
+		     "_dc_spec.loader.exec_module(_dc_mod); "
+		     "_dc_mod.dc_setup_lyra()"),
+		*ScriptPath);
+
+	UE_LOG(LogDeltaCodeEditor, Log, TEXT("[SetupLyra] running dc_setup_lyra…"));
+
+	const bool bOk = IPythonScriptPlugin::Get()->ExecPythonCommand(*Command);
+
+	if (bOk)
+	{
+		OutMessage = TEXT("Lyra integration setup complete. See Output Log for details.");
+	}
+	else
+	{
+		OutMessage = TEXT("Lyra setup raised an error. Check Output Log (LogPython) for the traceback.");
+		UE_LOG(LogDeltaCodeEditor, Error, TEXT("[SetupLyra] %s"), *OutMessage);
+	}
+
+	return bOk;
+}
+
+bool FDCLevelScriptingBridge::IsLyraProjectDetected()
+{
+	// LyraGame is the canonical Lyra runtime module. If it's loaded the
+	// project is built on Lyra and our Lyra-specific assets / GE refs
+	// are reachable. Cheap O(1) lookup — safe to call in a Slate
+	// visibility callback.
+	return FModuleManager::Get().IsModuleLoaded(FName(TEXT("LyraGame")));
 }
 
 #undef LOCTEXT_NAMESPACE

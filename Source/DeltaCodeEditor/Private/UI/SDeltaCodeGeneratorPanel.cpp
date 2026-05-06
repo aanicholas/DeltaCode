@@ -296,6 +296,20 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 								"modified. Results appear in the Output Log."))
 							.OnClicked(this, &SDeltaCodeGeneratorPanel::OnRunInspectorClicked)
 						]
+
+						+ SHorizontalBox::Slot()
+						.VAlign(VAlign_Center).AutoWidth().Padding(6.0f, 0.0f, 0.0f, 0.0f)
+						[
+							SNew(SButton)
+							.Text(LOCTEXT("SetupLyraBtn", "Setup Lyra Integration"))
+							.ToolTipText(LOCTEXT("SetupLyraTooltip",
+								"One-click setup of DeltaCode assets for a Lyra project: "
+								"creates GE_DC_Kill, DA_DC_DamageTiers, and AI assets. "
+								"Idempotent — safe to re-run. Visible only when the LyraGame "
+								"module is loaded."))
+							.Visibility(this, &SDeltaCodeGeneratorPanel::GetSetupLyraVisibility)
+							.OnClicked(this, &SDeltaCodeGeneratorPanel::OnSetupLyraClicked)
+						]
 					]
 				]
 			]
@@ -597,6 +611,15 @@ EVisibility SDeltaCodeGeneratorPanel::GetDangerWarningVisibility() const
 	return Mode == EDCGenerationMode::Danger ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
+EVisibility SDeltaCodeGeneratorPanel::GetSetupLyraVisibility() const
+{
+	// The enclosing inspector row is already gated on Safe Mode, so we
+	// only need the Lyra-detected check here. Module-load is an O(1)
+	// lookup and safe to call every paint.
+	return FDCLevelScriptingBridge::IsLyraProjectDetected()
+		? EVisibility::Visible : EVisibility::Collapsed;
+}
+
 EVisibility SDeltaCodeGeneratorPanel::GetInspectorRowVisibility() const
 {
 	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
@@ -858,6 +881,18 @@ FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
 		StatusText = FText::FromString(BridgeMessage);
 	}
 
+	return FReply::Handled();
+}
+
+FReply SDeltaCodeGeneratorPanel::OnSetupLyraClicked()
+{
+	StatusText = LOCTEXT("SetupLyraRunning",
+		"Setting up Lyra integration\u2026 see Output Log for details.");
+
+	FString Message;
+	FDCLevelScriptingBridge::ExecuteLyraSetup(Message);
+
+	StatusText = FText::FromString(Message);
 	return FReply::Handled();
 }
 

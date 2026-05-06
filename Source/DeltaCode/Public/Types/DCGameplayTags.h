@@ -50,4 +50,7 @@ namespace FDCGameplayTags
 	DELTACODE_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Door);
 	DELTACODE_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_Vendor);
 	DELTACODE_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Interaction_QuestGiver);
+
+	// ── Damage tags — applied by gameplay effects ───────────────────────────
+	DELTACODE_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Damage_Lethal);
 }
