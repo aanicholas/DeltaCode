@@ -6,6 +6,7 @@ SOURCE_PYTHON="$HOME/Documents/DeltaCode/Content/Python"
 DESTINATIONS=(
     "$HOME/Documents/Unreal Projects/DeltaCodeOpus/Plugins/DeltaCode/Content/Python"
     "$HOME/Documents/Unreal Projects/DC_Prototype/Plugins/DeltaCode/Content/Python"
+    "$HOME/Documents/Unreal Projects/DeltaCodeLyra/Plugins/DeltaCode/Content/Python"
 )
 
 for DEST in "${DESTINATIONS[@]}"; do
@@ -13,6 +14,7 @@ for DEST in "${DESTINATIONS[@]}"; do
     cp "$SOURCE_PYTHON/dc_create_ai_assets.py" "$DEST/dc_create_ai_assets.py"
     cp "$SOURCE_PYTHON/dc_find_ai_enemies.py" "$DEST/dc_find_ai_enemies.py"
     cp "$SOURCE_PYTHON/dc_inspect_project.py" "$DEST/dc_inspect_project.py"
+    cp "$SOURCE_PYTHON/dc_setup_lyra.py" "$DEST/dc_setup_lyra.py"
 done
 
 echo "DeltaCode Python files synced to ${#DESTINATIONS[@]} project(s)."

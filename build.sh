@@ -5,7 +5,7 @@
 #   ./build.sh           Builds all three projects (fail-fast)
 #   ./build.sh opus      Builds DeltaCodeOpus
 #   ./build.sh prototype Builds DC_Prototype (blank-project test bed)
-#   ./build.sh lyra      Builds Lyra sample (DeltaCode_PL)
+#   ./build.sh lyra      Builds Lyra sample (DeltaCodeLyra)
 #
 # Each project's engine version is read from the EngineAssociation field
 # of its .uproject; the matching engine is expected at /Applications/UE_<ver>.
@@ -72,7 +72,7 @@ build_one() {
 
 build_opus()      { build_one "DeltaCodeOpus" "$PROJECTS_ROOT/DeltaCodeOpus" "DeltaCodeOpusEditor"; }
 build_prototype() { build_one "DC_Prototype"  "$PROJECTS_ROOT/DC_Prototype"  "DC_PrototypeEditor"; }
-build_lyra()      { build_one "Lyra (DeltaCode_PL)" "$PROJECTS_ROOT/DeltaCode_PL" "LyraEditor"; }
+build_lyra()      { build_one "Lyra (DeltaCodeLyra)" "$PROJECTS_ROOT/DeltaCodeLyra" "LyraEditor"; }
 
 case "${1:-all}" in
     opus)      build_opus ;;
