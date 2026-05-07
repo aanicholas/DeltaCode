@@ -85,7 +85,9 @@ float UDCDamageStatics::ApplyTieredDamageViaASC(UAbilitySystemComponent* TargetA
 	}
 
 	// Dynamic asset tags so cues / listeners can discriminate by source.
-	SpecHandle.Data->DynamicAssetTags.AppendTags(SourceTags);
+	// AppendDynamicAssetTags is the UE5.5+ accessor; the old direct
+	// DynamicAssetTags member access is deprecated.
+	SpecHandle.Data->AppendDynamicAssetTags(SourceTags);
 
 	const float Magnitude = Config.ResolveMagnitude(Tier);
 	// Lethal goes through SetByCaller too — GE_DC_Kill is a duplicate of
