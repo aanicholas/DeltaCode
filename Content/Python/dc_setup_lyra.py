@@ -310,15 +310,28 @@ def _report_optional_setup_gaps():
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
 def dc_setup_lyra():
-    """One-click DeltaCode setup for Lyra projects. Idempotent."""
+    """One-click DeltaCode setup for Lyra projects. Idempotent.
+
+    On non-Lyra projects (Lyra prereqs missing), the damage section is
+    skipped entirely — without the gate we'd create DA_DC_DamageTiers
+    wired to a soft class path pointing at a non-existent GE. AI
+    bootstrap and the optional gap report still run because both work
+    on any project.
+    """
     _log("=" * 60)
     _log("DeltaCode → Lyra integration setup starting")
     _log("=" * 60)
 
-    _verify_lyra_prerequisites()
+    lyra_ok, _missing = _verify_lyra_prerequisites()
 
-    kill_ge = _create_kill_ge()
-    _create_damage_tiers_asset(kill_ge)
+    if lyra_ok:
+        kill_ge = _create_kill_ge()
+        _create_damage_tiers_asset(kill_ge)
+    else:
+        _warn("Skipping damage asset creation (GE_DC_Kill, "
+              "DA_DC_DamageTiers) — Lyra prerequisites unavailable. "
+              "AI bootstrap and optional gap report will still run.")
+
     _chain_ai_assets()
     _report_optional_setup_gaps()
 
