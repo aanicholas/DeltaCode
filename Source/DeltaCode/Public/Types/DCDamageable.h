@@ -11,8 +11,7 @@
 #include "Types/DCDamageTypes.h"
 #include "DCDamageable.generated.h"
 
-UINTERFACE(MinimalAPI, BlueprintType,
-           meta = (CannotImplementInterfaceInBlueprint))
+UINTERFACE(MinimalAPI, Blueprintable, BlueprintType)
 class UDCDamageable : public UInterface
 {
 	GENERATED_BODY()
