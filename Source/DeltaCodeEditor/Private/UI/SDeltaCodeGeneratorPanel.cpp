@@ -926,10 +926,13 @@ FReply SDeltaCodeGeneratorPanel::OnAskClicked()
 		return FReply::Handled();
 	}
 
-	// Phase 2: build the request. System prompt is the verbatim Ask preamble;
+	// Phase 2: build the request. System prompt branches on Lyra detection
+	// (inside the builder) and on the panel's current Safe/Danger toggle;
 	// user message is the formatted scan followed by the user's question.
+	const EDCGenerationMode AskMode =
+		SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
 	FDCAnthropicRequest Request;
-	Request.SystemPrompt = FDCPromptBuilder::BuildAskSystemPrompt();
+	Request.SystemPrompt = FDCPromptBuilder::BuildAskSystemPrompt(AskMode);
 	const FString UserMessage = FString::Printf(
 		TEXT("%s\nQuestion: %s"), *FormattedScan, *PromptString);
 	Request.Messages.Add(FDCAnthropicMessage::User(UserMessage));

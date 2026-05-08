@@ -41,11 +41,14 @@ namespace FDCPromptBuilder
 	                                              EDCMissionTemplate Template);
 
 	/**
-	 * System prompt for the Safe Mode "Ask DeltaCode" flow — answers user
-	 * questions about the current UE5 project in plain English using a
-	 * scan of the project content (supplied as part of the user message).
+	 * System prompt for the "Ask DeltaCode" flow. Acts as a guided integration
+	 * assistant: scan-first, explain-second, recommend-third, modify-only-with-
+	 * permission. Branches on Lyra detection (LyraGame module loaded) to push
+	 * the model toward Lyra-native patterns when applicable, and on Mode —
+	 * Safe explains and recommends only, Danger Zone may also propose
+	 * modifications and full scaffolding.
 	 */
-	DELTACODEEDITOR_API FString BuildAskSystemPrompt();
+	DELTACODEEDITOR_API FString BuildAskSystemPrompt(EDCGenerationMode Mode);
 
 	/** Human-readable name for a generation mode — used in the panel status bar. */
 	DELTACODEEDITOR_API FText ModeDisplayName(EDCGenerationMode Mode);
