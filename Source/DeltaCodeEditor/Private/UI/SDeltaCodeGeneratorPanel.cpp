@@ -439,7 +439,7 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 					.ToolTipText(LOCTEXT("BuildMissionTooltip",
 						"Clear the current level and rebuild it from the selected mission template. "
 						"Runs the DeltaCode Python pipeline. Always prompts before executing. "
-						"(Danger Zone only)"))
+						"(Enabled when the prompt box is empty.)"))
 					.IsEnabled(this, &SDeltaCodeGeneratorPanel::IsBuildMissionEnabled)
 					.OnClicked(this, &SDeltaCodeGeneratorPanel::OnBuildMissionClicked)
 				]
@@ -458,7 +458,9 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 					.Text(this, &SDeltaCodeGeneratorPanel::GetAskButtonText)
 					.ToolTipText(LOCTEXT("AskTooltip",
 						"Scan the project (read-only), include the scan as context, and ask "
-						"DeltaCode to answer your question in plain English. (Safe Mode only)"))
+						"DeltaCode to answer your question in plain English. Safe Mode explains "
+						"and recommends only; Danger Zone may also propose modifications. "
+						"(Enabled when the prompt box has text.)"))
 					.IsEnabled(this, &SDeltaCodeGeneratorPanel::IsAskEnabled)
 					.OnClicked(this, &SDeltaCodeGeneratorPanel::OnAskClicked)
 				]
@@ -563,18 +565,22 @@ bool SDeltaCodeGeneratorPanel::IsBusy() const
 	return CurrentActivity != EDCPanelActivity::Idle;
 }
 
+bool SDeltaCodeGeneratorPanel::IsPromptNonEmpty() const
+{
+	if (!PromptBox.IsValid()) { return false; }
+	return !PromptBox->GetText().ToString().TrimStartAndEnd().IsEmpty();
+}
+
 bool SDeltaCodeGeneratorPanel::IsGenerateEnabled() const
 {
 	if (IsBusy()) { return false; }
-	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
-	return Mode == EDCGenerationMode::Safe;
+	return IsPromptNonEmpty();
 }
 
 bool SDeltaCodeGeneratorPanel::IsBuildMissionEnabled() const
 {
 	if (IsBusy()) { return false; }
-	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
-	return Mode == EDCGenerationMode::Danger;
+	return !IsPromptNonEmpty();
 }
 
 bool SDeltaCodeGeneratorPanel::IsCreateCoreAssetsEnabled() const
@@ -587,10 +593,7 @@ bool SDeltaCodeGeneratorPanel::IsCreateCoreAssetsEnabled() const
 bool SDeltaCodeGeneratorPanel::IsAskEnabled() const
 {
 	if (IsBusy()) { return false; }
-	const EDCGenerationMode Mode = SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
-	if (Mode != EDCGenerationMode::Safe) { return false; }
-	if (!PromptBox.IsValid()) { return false; }
-	return !PromptBox->GetText().ToString().TrimStartAndEnd().IsEmpty();
+	return IsPromptNonEmpty();
 }
 
 EVisibility SDeltaCodeGeneratorPanel::GetCancelVisibility() const

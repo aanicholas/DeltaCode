@@ -147,6 +147,7 @@ private:
 	void OnAskResponseReceived(const FDCAnthropicResponse& Response);
 
 	bool IsBusy() const;
+	bool IsPromptNonEmpty() const;
 	bool IsGenerateEnabled() const;
 	bool IsBuildMissionEnabled() const;
 	bool IsCreateCoreAssetsEnabled() const;
