@@ -733,6 +733,19 @@ FReply SDeltaCodeGeneratorPanel::OnGenerateClicked()
 		return OnAskClicked();
 	}
 
+	// One-time per-session nudge: Generate has no project context unless the
+	// user runs Inspector first. Surfaced as a non-blocking toast so the
+	// request still proceeds.
+	if (!bScanRunThisSession && !bGenerateWithoutScanTipShown)
+	{
+		FNotificationInfo Info(LOCTEXT("GenerateNoScanTip",
+			"Tip: Run Inspector first for project-aware responses."));
+		Info.ExpireDuration = 6.0f;
+		Info.bUseSuccessFailIcons = false;
+		FSlateNotificationManager::Get().AddNotification(Info);
+		bGenerateWithoutScanTipShown = true;
+	}
+
 	const EDCGenerationMode Mode =
 		SelectedMode.IsValid() ? *SelectedMode : EDCGenerationMode::Safe;
 	const EDCMissionTemplate Template =
@@ -877,6 +890,7 @@ FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
 			LOCTEXT("InspectorDoneFmt",
 				"{0} See Output Log for full report."),
 			FText::FromString(BridgeMessage));
+		bScanRunThisSession = true;
 	}
 	else
 	{
@@ -928,6 +942,7 @@ FReply SDeltaCodeGeneratorPanel::OnAskClicked()
 		StatusText = FText::FromString(BridgeMessage);
 		return FReply::Handled();
 	}
+	bScanRunThisSession = true;
 
 	// Phase 2: build the request. System prompt branches on Lyra detection
 	// (inside the builder) and on the panel's current Safe/Danger toggle;

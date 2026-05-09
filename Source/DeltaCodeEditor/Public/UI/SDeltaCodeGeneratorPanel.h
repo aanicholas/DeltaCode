@@ -109,6 +109,12 @@ private:
 	EDCPanelActivity CurrentActivity = EDCPanelActivity::Idle;
 	bool bWasCancelled = false;
 
+	// True once a successful project scan has run in this editor session
+	// (Inspector or Ask). Drives the one-time "run inspector first" tip
+	// when Generate is clicked without project context.
+	bool bScanRunThisSession = false;
+	bool bGenerateWithoutScanTipShown = false;
+
 	FReply OnGenerateClicked();
 	FReply OnCancelClicked();
 	void OnResponseReceived(const FDCAnthropicResponse& Response);
