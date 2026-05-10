@@ -131,6 +131,7 @@ FString FDCLevelScriptingBridge::InspectorTopicSlug(EDCInspectorTopic Topic)
 	case EDCInspectorTopic::Combat:    return TEXT("combat");
 	case EDCInspectorTopic::Animation: return TEXT("animation");
 	case EDCInspectorTopic::Input:     return TEXT("input");
+	case EDCInspectorTopic::Meshes:    return TEXT("meshes");
 	default:                           return TEXT("all");
 	}
 }

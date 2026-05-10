@@ -175,6 +175,10 @@ namespace DCPromptBuilderPrivate
 		"  - Suggest deleting or replacing Lyra systems.\n"
 		"  - Propose generic UE5 patterns when a Lyra-native pattern exists.\n"
 		"  - Generate large code dumps before the user has agreed to the integration approach.\n"
+		"\n"
+		"MESH LOOKUPS: If the user asks where a specific mesh lives, point them to "
+		"Run Inspector → Meshes (StaticMesh + SkeletalMesh enumeration). The default "
+		"project scan deliberately excludes meshes to stay compact.\n"
 	);
 
 	/**
@@ -207,6 +211,10 @@ namespace DCPromptBuilderPrivate
 		"  - Suggest deleting or replacing existing systems before the user agrees.\n"
 		"  - Generate large code dumps before the user has agreed to the integration approach.\n"
 		"  - Use jargon when plain English would do.\n"
+		"\n"
+		"MESH LOOKUPS: If the user asks where a specific mesh lives, point them to "
+		"Run Inspector → Meshes (StaticMesh + SkeletalMesh enumeration). The default "
+		"project scan deliberately excludes meshes to stay compact.\n"
 	);
 
 	/** Safe Mode Ask addendum — explain and recommend only. */

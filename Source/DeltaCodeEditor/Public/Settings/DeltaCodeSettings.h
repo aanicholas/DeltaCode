@@ -55,6 +55,7 @@ enum class EDCInspectorTopic : uint8
 	Combat     UMETA(DisplayName = "Combat / Damage"),
 	Animation  UMETA(DisplayName = "Animation"),
 	Input      UMETA(DisplayName = "Input"),
+	Meshes     UMETA(DisplayName = "Meshes"),
 };
 
 /**

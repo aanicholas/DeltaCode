@@ -33,6 +33,8 @@ _DEFAULT_SCAN_PATH = "/Game"
 _CHARACTER_CP        = ("/Script/Engine",        "Character")
 _AI_CONTROLLER_CP    = ("/Script/AIModule",      "AIController")
 _BLUEPRINT_CP        = ("/Script/Engine",        "Blueprint")
+_STATIC_MESH_CP      = ("/Script/Engine",        "StaticMesh")
+_SKELETAL_MESH_CP    = ("/Script/Engine",        "SkeletalMesh")
 _BT_CP               = ("/Script/AIModule",      "BehaviorTree")
 _BB_CP               = ("/Script/AIModule",      "BlackboardData")
 _ANIM_MONTAGE_CP     = ("/Script/Engine",        "AnimMontage")
@@ -68,6 +70,41 @@ _GAME_FEATURE_ACTION_CP         = ("/Script/GameFeatures", "GameFeatureAction")
 # Modular Gameplay — base classes Lyra characters extend.
 _MODULAR_CHARACTER_CP           = ("/Script/ModularGameplayActors", "ModularCharacter")
 
+
+# ─── EXTENSIBLE SCAN REGISTRY ────────────────────────────────────────────────
+#
+# Simple class-path-driven categories live here and are dispatched generically
+# through _scan_assets_by_class(). Categories that need bespoke heuristics
+# (player vs enemy disambiguation, parent-class substring routing, etc.)
+# remain in their hand-written _scan_*/_format_* functions in the
+# _CATEGORY_FN table further down — DO NOT migrate those into this registry.
+#
+# To add a new simple category:
+#   1. Append one entry to SCAN_CATEGORIES with: label, classes, require_folder.
+#   2. Add the topic name to _TOPICS_TO_CATEGORIES (one-line mapping).
+#   3. Done. format_scan_for_llm picks up the new label automatically.
+#
+# Set require_folder=True for categories that are too noisy to scan globally
+# (e.g. Texture2D with thousands of assets). Those return an empty list with
+# a log warning when called without a folder= argument.
+#
+# Future categories to plan for (NOT yet implemented):
+#   materials    — Material, MaterialInstanceConstant
+#   audio        — SoundBase, SoundCue, SoundWave
+#   effects      — NiagaraSystem, ParticleSystem
+#   ui           — WidgetBlueprint
+#   textures     — Texture2D (require_folder=True)
+#   environments — StaticMesh filtered to /Game/Environment (require_folder=True)
+SCAN_CATEGORIES = {
+    "meshes": {
+        "label":          "Meshes",
+        "classes":        [(_STATIC_MESH_CP,   "SM"),
+                           (_SKELETAL_MESH_CP, "SK")],
+        "require_folder": False,
+    },
+}
+
+
 _TOPICS_TO_CATEGORIES = {
     None:           ("player", "enemy", "damage", "animation", "input"),
     "all":          ("player", "enemy", "damage", "animation", "input",
@@ -91,6 +128,9 @@ _TOPICS_TO_CATEGORIES = {
     "camera":       ("camera",),
     "lyra":         ("experience", "gas", "equipment", "inventory",
                      "gamefeatures", "input_config", "camera"),
+    # Registry-driven categories — see SCAN_CATEGORIES above. Deliberately
+    # NOT included in 'all' or 'lyra' (opt-in only).
+    "meshes":       ("meshes",),
 }
 
 
@@ -147,6 +187,42 @@ def _filter_assets_multi(class_path, scan_paths, recursive=True):
             seen.add(key)
             out.append(ad)
     return out
+
+
+def _normalize_folder(folder):
+    """Folder filter normalizer — 'ShooterCore/Foo' → '/ShooterCore/Foo'.
+    Leaves already-absolute paths like '/Game/Foo' alone."""
+    if not folder:
+        return folder
+    return folder if folder.startswith("/") else "/" + folder
+
+
+def _scan_assets_by_class(class_specs, folder=None):
+    """Generic scanner used by every entry in SCAN_CATEGORIES.
+
+    class_specs: list of ((module, classname), kind_label) pairs.
+    folder:      mount-relative path like '/ShooterCore/Weapons/Shotgun'.
+                 If set, the scan is restricted to that single package_path
+                 (no recursion into other mounts). If None, the scan covers
+                 /Game plus every Game Feature plugin mount.
+    Returns:     list of {"kind", "name", "path"} rows — same shape as
+                 _scan_animation/_scan_input output, formatted via _emit_compact.
+    """
+    paths = [_normalize_folder(folder)] if folder else _lyra_scan_paths()
+    rows = []
+    for class_path, kind in class_specs:
+        for ad in _filter_assets_multi(class_path, paths):
+            rows.append({"kind": kind,
+                         "name": str(ad.asset_name),
+                         "path": _asset_full_path(ad)})
+    return rows
+
+
+def _format_registry_category(label, rows):
+    """Generic format used by every entry in SCAN_CATEGORIES."""
+    _hr_section(label, len(rows))
+    for r in rows:
+        _emit_compact(r)
 
 
 def _lyra_plugin_mount_points():
@@ -788,7 +864,7 @@ _CATEGORY_FN = {
 }
 
 
-def dc_inspect_project(topic=None, silent=False):
+def dc_inspect_project(topic=None, silent=False, folder=None):
     """Read-only scan of the current UE project.
 
     topic — None runs the original 5 categories (player/enemy/damage/
@@ -796,17 +872,23 @@ def dc_inspect_project(topic=None, silent=False):
         only the Lyra/GAS categories. Single-category aliases:
         'player', 'enemy'/'ai', 'damage'/'combat', 'animation', 'input',
         'gas'/'abilities', 'experience', 'equipment', 'inventory',
-        'gamefeatures', 'input_config', 'camera'.
+        'gamefeatures', 'input_config', 'camera', 'meshes'.
 
     silent — if False (default), logs a structured report to the Output Log
         and returns None. If True, suppresses logging and returns a dict
         keyed by category name with list[dict] values — for programmatic
         consumption (e.g. Danger Zone deciding what assets to reuse).
 
+    folder — mount-relative path (e.g. '/ShooterCore/Weapons/Shotgun') used
+        by registry-driven categories (SCAN_CATEGORIES) to narrow their scan
+        to a single package path. Categories with require_folder=True (e.g.
+        textures) return an empty list with a log warning when this is None.
+        Hand-written categories (player, enemy, gas, etc.) ignore this kwarg.
+
     Dict shape (silent=True): {category: [{"kind": str, "name": str,
         "path": str, "parent": Optional[str], "hints": list[str]}, ...]}.
         'parent' and 'hints' are present on BP/native rows; absent on
-        plain asset rows (BT/BB/Montage/AnimBP/Sequence/IA/IMC).
+        plain asset rows (BT/BB/Montage/AnimBP/Sequence/IA/IMC/SM/SK).
     """
     if topic is not None and topic not in _TOPICS_TO_CATEGORIES:
         valid = sorted(t for t in _TOPICS_TO_CATEGORIES if t is not None)
@@ -817,9 +899,19 @@ def dc_inspect_project(topic=None, silent=False):
     cats = _TOPICS_TO_CATEGORIES[topic]
     result = {}
     for cat in cats:
-        scan_fn, _ = _CATEGORY_FN[cat]
         try:
-            result[cat] = scan_fn()
+            if cat in SCAN_CATEGORIES:
+                spec = SCAN_CATEGORIES[cat]
+                if spec["require_folder"] and not folder:
+                    _log(f"category '{cat}' requires folder= argument; "
+                         f"returning empty (would scan globally otherwise)")
+                    result[cat] = []
+                else:
+                    result[cat] = _scan_assets_by_class(spec["classes"],
+                                                       folder=folder)
+            else:
+                scan_fn, _ = _CATEGORY_FN[cat]
+                result[cat] = scan_fn()
         except Exception as e:
             _log(f"WARN: category '{cat}' failed — {e}")
             result[cat] = []
@@ -831,8 +923,12 @@ def dc_inspect_project(topic=None, silent=False):
     _out("DeltaCode Project Inspector")
     _hr_double()
     for cat in cats:
-        _, format_fn = _CATEGORY_FN[cat]
-        format_fn(result[cat])
+        if cat in SCAN_CATEGORIES:
+            _format_registry_category(SCAN_CATEGORIES[cat]["label"],
+                                      result[cat])
+        else:
+            _, format_fn = _CATEGORY_FN[cat]
+            format_fn(result[cat])
     _out("")
     _hr_double()
     total = sum(len(v) for v in result.values())
@@ -866,6 +962,9 @@ def format_scan_for_llm(scan):
         ("input_config", "Lyra Input Config"),
         ("camera",       "Camera Modes"),
     )
+    # Append registry-driven categories so future SCAN_CATEGORIES entries
+    # render in the LLM-formatted scan with no second edit needed.
+    titles = titles + tuple((k, v["label"]) for k, v in SCAN_CATEGORIES.items())
     lines = ["# DeltaCode Project Scan", ""]
     for cat, title in titles:
         if cat not in scan:
@@ -891,20 +990,25 @@ def format_scan_for_llm(scan):
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_scan_for_llm(output_path, topic="all"):
+def write_scan_for_llm(output_path, topic="all", folder=None):
     """Run the inspector silently, format the result for LLM consumption,
     and write it to output_path. Used by the C++ bridge to capture inspector
     output for inclusion in an Anthropic request body — see
     FDCLevelScriptingBridge::RunInspectorForLLM — and by the Run Inspector
-    button to render the same formatted scan in the panel's Response box."""
+    button to render the same formatted scan in the panel's Response box.
+
+    folder — forwarded to dc_inspect_project for registry-driven categories
+    (SCAN_CATEGORIES). Currently only callable from Python directly; C++/UI
+    plumbing for folder-targeted scans is a follow-up task."""
     import os
-    scan = dc_inspect_project(topic=topic, silent=True)
+    scan = dc_inspect_project(topic=topic, silent=True, folder=folder)
     text = format_scan_for_llm(scan)
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(text)
     total = sum(len(v) for v in scan.values())
-    _log(f"wrote LLM-formatted scan ({len(text)} chars, {total} items, topic={topic}) to {output_path}")
+    _log(f"wrote LLM-formatted scan ({len(text)} chars, {total} items, "
+         f"topic={topic}, folder={folder}) to {output_path}")
 
 
 if __name__ == "__main__":
