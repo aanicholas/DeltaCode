@@ -72,7 +72,7 @@ enum class EDCInspectorTopic : uint8
  * [INPUT]  From: user input via Project Settings UI
  * [OUTPUT] To:   FDCAnthropicClient (API key, model), SDeltaCodeGeneratorPanel (defaults)
  */
-UCLASS(Config=Game, meta=(DisplayName="DeltaCode"))
+UCLASS(Config=EditorPerProjectUserSettings, meta=(DisplayName="DeltaCode"))
 class DELTACODEEDITOR_API UDeltaCodeSettings : public UDeveloperSettings
 {
 	GENERATED_BODY()
