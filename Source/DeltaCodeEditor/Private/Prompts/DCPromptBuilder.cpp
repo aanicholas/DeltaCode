@@ -179,6 +179,14 @@ namespace DCPromptBuilderPrivate
 		"MESH LOOKUPS: If the user asks where a specific mesh lives, point them to "
 		"Run Inspector → Meshes (StaticMesh + SkeletalMesh enumeration). The default "
 		"project scan deliberately excludes meshes to stay compact.\n"
+		"\n"
+		"IMPORTANT — Lyra content split: weapon, equipment, and ability DEFINITIONS "
+		"live in Game Feature plugins under mounts like /ShooterCore/, but the "
+		"underlying MESH ASSETS (SM_Shotgun, SK_Pistol, etc.) almost always live "
+		"under /Game/ in the host project's main Content folder. When recommending "
+		"a folder-targeted mesh scan, suggest /Game/Weapons/<Name> NOT "
+		"/ShooterCore/Weapons/<Name> — the Game Feature mount usually contains only "
+		"the definition asset that references the mesh, not the mesh itself.\n"
 	);
 
 	/**
