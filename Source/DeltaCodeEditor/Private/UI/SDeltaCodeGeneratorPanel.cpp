@@ -152,6 +152,7 @@ void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Combat));
 	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Animation));
 	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Input));
+	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Meshes));
 
 	const UDeltaCodeSettings* Settings = UDeltaCodeSettings::Get();
 	const EDCGenerationMode InitialMode =
