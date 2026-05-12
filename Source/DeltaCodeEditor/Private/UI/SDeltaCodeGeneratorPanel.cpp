@@ -581,6 +581,9 @@ bool SDeltaCodeGeneratorPanel::IsGenerateEnabled() const
 bool SDeltaCodeGeneratorPanel::IsBuildMissionEnabled() const
 {
 	if (IsBusy()) { return false; }
+	const EDCGenerationMode Mode = SelectedMode.IsValid()
+		? *SelectedMode : EDCGenerationMode::Safe;
+	if (Mode != EDCGenerationMode::Danger) { return false; }
 	return !IsPromptNonEmpty();
 }
 
