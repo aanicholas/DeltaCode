@@ -159,7 +159,149 @@ and recommend only.
 
 ---
 
-## 7. The Mesh-vs-Definition Split (Reminder)
+## 7. The Template Level Workflow
+
+**Reference → Duplicate → Subclass → Fork.**
+
+When a user wants to build their own game mode or template level on top of
+Lyra, DeltaCode should guide them through this workflow.
+
+### The Core Rule
+Reference systems. Duplicate configuration. Subclass behavior. Fork code only
+as a last resort.
+
+### Step by Step
+
+1. **Create your own Game Feature Plugin.**
+   Example: `GameFeature_MyTemplateLevel` at
+   `Plugins/GameFeatures/MyTemplateLevel/`.
+
+2. **Create your own map inside that plugin.**
+   `Plugins/GameFeatures/MyTemplateLevel/Content/Maps/L_MyTemplate.umap`.
+
+3. **Duplicate a Lyra `ExperienceDefinition` that is close to what you want.**
+   Never edit original Lyra assets directly. Duplicate → rename → customize.
+
+4. **Duplicate supporting data assets only as needed:**
+   - PawnData
+   - InputConfig
+   - AbilitySet
+   - Weapon definitions (`WID_`, `ID_`)
+   - HUD layout
+   - Spawn / team rules
+
+5. **Point your new Experience at your new map and customized assets.**
+
+6. **Only subclass or fork C++ if truly needed.**
+
+### What to ALWAYS Reference (never duplicate)
+- Lyra C++ base classes (`LyraCharacter`, `LyraGameplayAbility`,
+  `LyraDamageExecution`).
+- Lyra shared animation blueprints.
+- Lyra GAS execution classes.
+- Shared core plugin assets you don't need to change.
+
+### What to Duplicate (when you need to customize)
+- `ExperienceDefinition`
+- `PawnData`
+- `AbilitySet`
+- `InputConfig`
+- HUD layout
+- Weapon / item definitions (`WID_`, `ID_`)
+- `GameplayEffect`s with different values
+
+### What to Subclass (when you need different behavior)
+- Any Lyra C++ class where you override one or two functions.
+- `ULyraGameplayAbility` for new abilities.
+- `ULyraCameraMode` for new camera behavior.
+
+### What to Fork / Copy C++ (last resort only)
+- Only when subclassing is impossible.
+- Only when you need fundamental behavior change.
+- Accept the maintenance burden: you now own that code and must track Epic's
+  Lyra updates.
+
+### DeltaCode Guidance
+When a user asks to "copy" a Lyra system, DeltaCode should respond:
+
+> "I found [specific Lyra asset] that does what you need. Rather than copying
+> the whole system, I recommend duplicating [specific data assets] into your
+> plugin and referencing the shared Lyra code. Here is why and how..."
+
+---
+
+## 8. Shipping Cleanup — What to Keep, Replace, Delete
+
+When a developer is ready to ship and wants to remove unused Lyra sample
+content, DeltaCode should guide them through a **dependency-first audit**,
+never blind deletion.
+
+### The Three Buckets
+
+**KEEP — Core Lyra framework you still depend on:**
+- GAS patterns (abilities, effects, attribute sets).
+- Experience system and modular gameplay framework.
+- PawnData, InputConfig, AbilitySet patterns.
+- UI framework (CommonUI, UIExtension).
+- Any Lyra C++ base classes you subclass.
+
+**REPLACE — Shooter sample content that taught you the pattern but is no
+longer your game:**
+- ShooterCore weapons replaced by your weapons.
+- Shooter HUD replaced by your HUD.
+- Shooter Experiences replaced by yours.
+- Shooter pawn data replaced by yours.
+
+**DELETE LATER — Unused sample content after confirming no dependencies:**
+- Unused Lyra maps and test levels.
+- Unused weapons, bots, sample modes.
+- Unused Game Feature Plugins.
+- Placeholder art and test content.
+- Sample Experiences your game never loads.
+
+### The Cleanup Workflow
+
+1. **Build your own systems first.**
+   Get your RPG / game fully working before touching any Lyra sample content.
+
+2. **Stop referencing Lyra sample Experiences.**
+   Your main menu and game flow should launch *your* Experiences, not the
+   Lyra shooter Experiences.
+
+3. **Use Reference Viewer before deleting anything.**
+   Unreal's Reference Viewer shows exactly what depends on what. Never delete
+   without checking.
+
+4. **Check packaging / cook output.**
+   The real question is not "does this file exist?" — it is "is this asset
+   being cooked and shipped?" Uncooked assets cost nothing at runtime.
+
+5. **Disable unused Game Feature Plugins first.**
+   Disabling is safer than deleting. Confirm nothing breaks before
+   permanently removing.
+
+6. **Delete in passes, test after each:**
+   - Pass 1: Obvious unused sample maps.
+   - Pass 2: Unused weapons and bots.
+   - Pass 3: Unused UI and HUD.
+   - Pass 4: Unused materials and textures.
+   - Pass 5: Unused C++ modules (careful).
+
+### DeltaCode Cleanup Rule
+Never delete Lyra content because it looks unused. Always build a dependency
+report first.
+
+### Future DeltaCode Cleanup Feature (planned)
+A "Lyra Cleanup Audit" that:
+- Scans active Experiences to find what is actually referenced.
+- Compares against all installed Lyra content.
+- Generates a Keep / Replace / Safe-to-Remove report.
+- Guides removal one category at a time with dependency verification at
+  each step.
+
+---
+
+## 9. The Mesh-vs-Definition Split (Reminder)
 
 Lyra splits **definition assets** from **mesh assets** by convention:
 - Weapon, equipment, and ability **definitions** live in Game Feature mounts
