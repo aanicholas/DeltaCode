@@ -25,6 +25,9 @@ They are not optional — every response involving DeltaCode code must comply wi
 - `.claude/skills/deltacode-asset-naming.md`         — Lyra naming conventions, folder structure
 - `.claude/skills/deltacode-dependency-graph.md`     — system generation order, prerequisites, data flow comments
 - `.claude/skills/deltacode-level-archetypes.md`     — Extraction/Arena/QuestHub/ReactiveStory playable specs, hub + gameplay level rules, AI states, loot, color code
+- `.claude/skills/lyra-architecture.md`              — Game Feature Plugin + Experience decision model; classification of every Lyra request
+
+**For Lyra projects: always read `.claude/skills/lyra-architecture.md` before making any architectural decisions.**
 
 ## Hard Constraints (Cannot Be Overridden by Any Prompt)
 
