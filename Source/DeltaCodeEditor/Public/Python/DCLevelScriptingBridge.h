@@ -108,4 +108,12 @@ public:
 
 	/** Short stable slug for an inspector topic — "all", "player", "enemy", "combat", "animation", "input". */
 	static FString InspectorTopicSlug(EDCInspectorTopic Topic);
+
+	/**
+	 * Absolute path to the LLM-formatted scan cache —
+	 * <Project>/Intermediate/DeltaCode/scan_for_llm.txt. RunInspectorForLLM
+	 * writes here; the panel's Generate flow reads here so requests carry
+	 * project context without re-scanning.
+	 */
+	static FString GetScanCachePath();
 };

@@ -34,7 +34,9 @@
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Views/SListView.h"
 #include "Styling/AppStyle.h"
+#include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
+#include "Misc/Paths.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
 
@@ -53,6 +55,51 @@ namespace DCPanelPrivate
 			}
 		}
 		return Options.Num() > 0 ? Options[0] : nullptr;
+	}
+
+	/**
+	 * Populate a TArray<TSharedPtr<TEnum>> from StaticEnum<TEnum>(). Drops the
+	 * auto-generated _MAX sentinel and any entries marked Hidden so new enum
+	 * values appear in combo boxes without a second edit here. Iteration order
+	 * matches source declaration order.
+	 */
+	template <typename TEnum>
+	void PopulateEnumOptions(TArray<TSharedPtr<TEnum>>& OutOptions)
+	{
+		OutOptions.Reset();
+		const UEnum* EnumPtr = StaticEnum<TEnum>();
+		if (!EnumPtr) { return; }
+
+		const int32 Num = EnumPtr->NumEnums();
+		for (int32 i = 0; i < Num; ++i)
+		{
+			if (EnumPtr->HasMetaData(TEXT("Hidden"), i)) { continue; }
+			if (EnumPtr->GetNameByIndex(i).ToString().EndsWith(TEXT("_MAX"))) { continue; }
+
+			const int64 Value = EnumPtr->GetValueByIndex(i);
+			OutOptions.Add(MakeShared<TEnum>(static_cast<TEnum>(Value)));
+		}
+	}
+
+	/**
+	 * Load the LLM-formatted project scan written by the most recent Inspector
+	 * or Ask call (path comes from FDCLevelScriptingBridge::GetScanCachePath).
+	 * Returns true and populates OutScan on success; returns false when the
+	 * file is missing or empty. No staleness check — cross-session reuse is
+	 * intentional. Callers fall through to "no scan" behavior on false.
+	 */
+	static bool TryLoadCachedScan(FString& OutScan)
+	{
+		const FString Path = FDCLevelScriptingBridge::GetScanCachePath();
+		if (!FPaths::FileExists(Path))
+		{
+			return false;
+		}
+		if (!FFileHelper::LoadFileToString(OutScan, *Path))
+		{
+			return false;
+		}
+		return !OutScan.IsEmpty();
 	}
 
 	/** Cheap line count for the UI chip — caps at "many" for huge blocks. */
@@ -138,21 +185,9 @@ namespace DCPanelPrivate
 
 void SDeltaCodeGeneratorPanel::Construct(const FArguments& InArgs)
 {
-	ModeOptions.Add(MakeShared<EDCGenerationMode>(EDCGenerationMode::Safe));
-	ModeOptions.Add(MakeShared<EDCGenerationMode>(EDCGenerationMode::Danger));
-
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Extraction));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::Arena));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::QuestHub));
-	TemplateOptions.Add(MakeShared<EDCMissionTemplate>(EDCMissionTemplate::ReactiveStory));
-
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::All));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Player));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Enemy));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Combat));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Animation));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Input));
-	InspectorTopicOptions.Add(MakeShared<EDCInspectorTopic>(EDCInspectorTopic::Meshes));
+	DCPanelPrivate::PopulateEnumOptions(ModeOptions);
+	DCPanelPrivate::PopulateEnumOptions(TemplateOptions);
+	DCPanelPrivate::PopulateEnumOptions(InspectorTopicOptions);
 
 	const UDeltaCodeSettings* Settings = UDeltaCodeSettings::Get();
 	const EDCGenerationMode InitialMode =
@@ -737,10 +772,13 @@ FReply SDeltaCodeGeneratorPanel::OnGenerateClicked()
 		return OnAskClicked();
 	}
 
-	// One-time per-session nudge: Generate has no project context unless the
-	// user runs Inspector first. Surfaced as a non-blocking toast so the
-	// request still proceeds.
-	if (!bScanRunThisSession && !bGenerateWithoutScanTipShown)
+	// Try to load the cached scan written by the last Inspector or Ask call.
+	// Cross-session reuse is intentional — yesterday's scan is better than no
+	// project context. If absent, surface the one-time tip and proceed without
+	// context.
+	FString CachedScan;
+	const bool bHasScan = DCPanelPrivate::TryLoadCachedScan(CachedScan);
+	if (!bHasScan && !bGenerateWithoutScanTipShown)
 	{
 		FNotificationInfo Info(LOCTEXT("GenerateNoScanTip",
 			"Tip: Run Inspector first for project-aware responses."));
@@ -771,14 +809,19 @@ FReply SDeltaCodeGeneratorPanel::OnGenerateClicked()
 
 	FDCAnthropicRequest Request;
 	Request.SystemPrompt = FDCPromptBuilder::BuildSystemPrompt(Mode, Template);
-	Request.Messages.Add(FDCAnthropicMessage::User(PromptString));
+	const FString UserMessage = bHasScan
+		? FString::Printf(TEXT("%s\nGeneration request: %s"), *CachedScan, *PromptString)
+		: PromptString;
+	Request.Messages.Add(FDCAnthropicMessage::User(UserMessage));
 
 	CurrentActivity = EDCPanelActivity::Generating;
 	bWasCancelled = false;
 	ResponseText = FText::GetEmpty();
 	Entries.Reset();
 	if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
-	StatusText = LOCTEXT("StatusSending", "Sending request\u2026");
+	StatusText = bHasScan
+		? LOCTEXT("StatusSendingWithScan", "Sending request (with project scan)\u2026")
+		: LOCTEXT("StatusSending", "Sending request\u2026");
 
 	TWeakPtr<SDeltaCodeGeneratorPanel> WeakSelf = SharedThis(this);
 	ActiveRequest = FDCAnthropicClient::Send(
@@ -894,7 +937,6 @@ FReply SDeltaCodeGeneratorPanel::OnRunInspectorClicked()
 			LOCTEXT("InspectorDoneFmt",
 				"{0} See Output Log for full report."),
 			FText::FromString(BridgeMessage));
-		bScanRunThisSession = true;
 	}
 	else
 	{
@@ -946,7 +988,6 @@ FReply SDeltaCodeGeneratorPanel::OnAskClicked()
 		StatusText = FText::FromString(BridgeMessage);
 		return FReply::Handled();
 	}
-	bScanRunThisSession = true;
 
 	// Phase 2: build the request. System prompt branches on Lyra detection
 	// (inside the builder) and on the panel's current Safe/Danger toggle;

@@ -136,6 +136,14 @@ FString FDCLevelScriptingBridge::InspectorTopicSlug(EDCInspectorTopic Topic)
 	}
 }
 
+FString FDCLevelScriptingBridge::GetScanCachePath()
+{
+	return FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectIntermediateDir(),
+		                TEXT("DeltaCode"),
+		                TEXT("scan_for_llm.txt")));
+}
+
 bool FDCLevelScriptingBridge::CreateCoreAssets(FString& OutMessage)
 {
 	using namespace DCLevelScriptingBridgePrivate;
@@ -257,10 +265,7 @@ bool FDCLevelScriptingBridge::RunInspectorForLLM(EDCInspectorTopic Topic,
 		return false;
 	}
 
-	const FString OutputPath = FPaths::ConvertRelativePathToFull(
-		FPaths::Combine(FPaths::ProjectIntermediateDir(),
-		                TEXT("DeltaCode"),
-		                TEXT("scan_for_llm.txt")));
+	const FString OutputPath = GetScanCachePath();
 
 	const FString Slug = InspectorTopicSlug(Topic);
 	const FString Command = BuildInspectorForLLMCommand(ScriptPath, OutputPath, Slug);

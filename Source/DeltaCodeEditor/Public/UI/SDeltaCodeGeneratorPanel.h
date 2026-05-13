@@ -109,10 +109,8 @@ private:
 	EDCPanelActivity CurrentActivity = EDCPanelActivity::Idle;
 	bool bWasCancelled = false;
 
-	// True once a successful project scan has run in this editor session
-	// (Inspector or Ask). Drives the one-time "run inspector first" tip
-	// when Generate is clicked without project context.
-	bool bScanRunThisSession = false;
+	// Once-per-editor-session gate for the "Run Inspector first" tip toast
+	// when Generate fires without a cached project scan on disk.
 	bool bGenerateWithoutScanTipShown = false;
 
 	FReply OnGenerateClicked();
