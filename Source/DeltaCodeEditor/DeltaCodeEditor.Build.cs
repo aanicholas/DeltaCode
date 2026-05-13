@@ -32,6 +32,7 @@ public class DeltaCodeEditor : ModuleRules
             "DeveloperSettings",
             "PythonScriptPlugin",
             "Projects",
+            "SourceControl",
         });
     }
 }

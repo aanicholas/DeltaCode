@@ -21,6 +21,7 @@
 #include "Prompts/DCPromptBuilder.h"
 #include "Python/DCLevelScriptingBridge.h"
 #include "Settings/DeltaCodeSettings.h"
+#include "SourceControl/DCSourceControlSetup.h"
 
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -37,8 +38,10 @@
 #include "Misc/FileHelper.h"
 #include "Misc/MessageDialog.h"
 #include "Misc/Paths.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
+#include "Widgets/SWindow.h"
 
 #define LOCTEXT_NAMESPACE "SDeltaCodeGeneratorPanel"
 
@@ -79,6 +82,102 @@ namespace DCPanelPrivate
 			const int64 Value = EnumPtr->GetValueByIndex(i);
 			OutOptions.Add(MakeShared<TEnum>(static_cast<TEnum>(Value)));
 		}
+	}
+
+	/**
+	 * User's choice from the source-control gate modal. Cancel is what we
+	 * record if the user closes the window without clicking any button —
+	 * treated as "do not proceed" since the destructive operation is gated.
+	 */
+	enum class ESourceControlChoice : uint8
+	{
+		ProceedAnyway,
+		SetupGit,
+		Learn,
+		Cancel,
+	};
+
+	/**
+	 * Show the three-option source-control modal and block until the user
+	 * makes a choice. Fires every Build Mission click when source control
+	 * isn't configured — by design, the user explicitly opts in to a
+	 * destructive operation each time.
+	 */
+	static ESourceControlChoice ShowSourceControlModal()
+	{
+		ESourceControlChoice Choice = ESourceControlChoice::Cancel;
+
+		TSharedRef<SWindow> Window = SNew(SWindow)
+			.Title(LOCTEXT("SCModalTitle", "DeltaCode — Source Control Recommended"))
+			.SizingRule(ESizingRule::Autosized)
+			.SupportsMaximize(false)
+			.SupportsMinimize(false);
+
+		const FText BodyText = LOCTEXT("SCModalBody",
+			"Build Mission clears and rebuilds level content. No source control "
+			"provider is currently configured for this project, so changes are "
+			"unrecoverable if the operation produces an unwanted result.\n\n"
+			"How would you like to proceed?");
+
+		Window->SetContent(
+			SNew(SBorder)
+			.Padding(16.0f)
+			[
+				SNew(SVerticalBox)
+
+				+ SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 12.0f)
+				[
+					SNew(STextBlock)
+					.Text(BodyText)
+					.AutoWrapText(true)
+					.WrapTextAt(420.0f)
+				]
+
+				+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Right)
+				[
+					SNew(SHorizontalBox)
+
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("SCProceedAnyway", "Proceed anyway"))
+						.OnClicked_Lambda([&Choice, Window]()
+						{
+							Choice = ESourceControlChoice::ProceedAnyway;
+							Window->RequestDestroyWindow();
+							return FReply::Handled();
+						})
+					]
+
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("SCSetupGit", "Set up Git"))
+						.OnClicked_Lambda([&Choice, Window]()
+						{
+							Choice = ESourceControlChoice::SetupGit;
+							Window->RequestDestroyWindow();
+							return FReply::Handled();
+						})
+					]
+
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("SCLearn", "Learn about source control options"))
+						.OnClicked_Lambda([&Choice, Window]()
+						{
+							Choice = ESourceControlChoice::Learn;
+							Window->RequestDestroyWindow();
+							return FReply::Handled();
+						})
+					]
+				]
+			]
+		);
+
+		FSlateApplication::Get().AddModalWindow(Window, /*ParentWidget=*/nullptr);
+		return Choice;
 	}
 
 	/**
@@ -845,6 +944,51 @@ FReply SDeltaCodeGeneratorPanel::OnBuildMissionClicked()
 	const EDCMissionTemplate Template =
 		SelectedTemplate.IsValid() ? *SelectedTemplate : EDCMissionTemplate::Extraction;
 	const FText TemplateName = FDCPromptBuilder::TemplateDisplayName(Template);
+
+	// Source-control gate. Fires every Build Mission click when no provider
+	// is configured — destructive operations should re-prompt rather than
+	// remember "proceed anyway" across clicks. Bypassed silently when UE's
+	// Source Control module reports an active provider.
+	if (!FDCSourceControlSetup::IsSourceControlConfigured())
+	{
+		switch (DCPanelPrivate::ShowSourceControlModal())
+		{
+		case DCPanelPrivate::ESourceControlChoice::Cancel:
+			StatusText = LOCTEXT("BuildMissionSCCancel",
+				"Build Mission cancelled (no source control configured).");
+			return FReply::Handled();
+
+		case DCPanelPrivate::ESourceControlChoice::Learn:
+			ResponseText = FText::FromString(
+				FDCSourceControlSetup::GetSourceControlExplanation());
+			Entries.Reset();
+			if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
+			StatusText = LOCTEXT("BuildMissionSCLearned",
+				"Source control overview shown. Re-click Build Mission when ready.");
+			return FReply::Handled();
+
+		case DCPanelPrivate::ESourceControlChoice::SetupGit:
+		{
+			FString SetupMessage;
+			const bool bOk = FDCSourceControlSetup::RunGitInit(SetupMessage);
+			if (!bOk)
+			{
+				StatusText = FText::FromString(SetupMessage);
+				return FReply::Handled();
+			}
+			FNotificationInfo Info(FText::FromString(SetupMessage));
+			Info.ExpireDuration = 8.0f;
+			Info.bUseSuccessFailIcons = false;
+			FSlateNotificationManager::Get().AddNotification(Info);
+			// Fall through to the destructive-action confirmation modal.
+			break;
+		}
+
+		case DCPanelPrivate::ESourceControlChoice::ProceedAnyway:
+			// Explicit opt-in to destructive op without SC. No state change.
+			break;
+		}
+	}
 
 	const FText ConfirmBody = FText::Format(
 		LOCTEXT("BuildMissionConfirmFmt",
