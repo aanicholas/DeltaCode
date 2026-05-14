@@ -13,6 +13,20 @@
 #include "CoreMinimal.h"
 
 /**
+ * Outcome of FDCSourceControlSetup::RunGitInit. Lets the caller decide how
+ * to surface each case — GitNotFound goes to the Response box with
+ * platform-specific install instructions; other failures are short enough
+ * for the status bar.
+ */
+enum class EDCGitInitResult : uint8
+{
+	Success,
+	GitNotFound,
+	InitFailed,
+	GitignoreWriteFailed,
+};
+
+/**
  * Source-control awareness used by the Danger Zone Build Mission gate.
  *
  * The gate fires only for destructive level operations (Build Mission today).
@@ -38,12 +52,13 @@ public:
 	 * .gitignore, and on Windows set core.longpaths=true. Idempotent —
 	 * safe to re-run if .git/ already exists.
 	 *
-	 * Returns false with a descriptive message in OutMessage if the git
-	 * binary is missing, the init fails, or the .gitignore write fails.
-	 * On success, OutMessage contains a one-line summary suitable for
-	 * the panel status bar.
+	 * On Success, OutMessage carries a one-line summary suitable for the
+	 * status bar. On GitNotFound, the caller is expected to render
+	 * GetGitInstallInstructions() in the Response box and ignore
+	 * OutMessage. On other failures, OutMessage is the short failure
+	 * reason for the status bar.
 	 */
-	static bool RunGitInit(FString& OutMessage);
+	static EDCGitInitResult RunGitInit(FString& OutMessage);
 
 	/**
 	 * Hardcoded markdown explaining Git / Perforce / Plastic SCM trade-offs
@@ -52,4 +67,12 @@ public:
 	 * Response box when the user picks "Learn about source control options".
 	 */
 	static const FString& GetSourceControlExplanation();
+
+	/**
+	 * Platform-specific install instructions shown in the Response box when
+	 * `git` is not on the user's PATH. Selected at compile time via
+	 * PLATFORM_MAC / PLATFORM_WINDOWS / PLATFORM_LINUX so the user sees
+	 * only the steps relevant to their host OS.
+	 */
+	static const FString& GetGitInstallInstructions();
 };

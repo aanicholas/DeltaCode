@@ -970,9 +970,24 @@ FReply SDeltaCodeGeneratorPanel::OnBuildMissionClicked()
 		case DCPanelPrivate::ESourceControlChoice::SetupGit:
 		{
 			FString SetupMessage;
-			const bool bOk = FDCSourceControlSetup::RunGitInit(SetupMessage);
-			if (!bOk)
+			const EDCGitInitResult Result =
+				FDCSourceControlSetup::RunGitInit(SetupMessage);
+			if (Result == EDCGitInitResult::GitNotFound)
 			{
+				// Platform-specific install instructions go in the Response
+				// box so users can read and act on them; status bar gets a
+				// short pointer.
+				ResponseText = FText::FromString(
+					FDCSourceControlSetup::GetGitInstallInstructions());
+				Entries.Reset();
+				if (EntriesList.IsValid()) { EntriesList->RequestListRefresh(); }
+				StatusText = FText::FromString(SetupMessage);
+				return FReply::Handled();
+			}
+			if (Result != EDCGitInitResult::Success)
+			{
+				// InitFailed / GitignoreWriteFailed — short enough for the
+				// status bar; full detail is in the Output Log.
 				StatusText = FText::FromString(SetupMessage);
 				return FReply::Handled();
 			}
