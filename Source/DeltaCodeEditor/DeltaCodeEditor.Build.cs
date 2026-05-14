@@ -33,6 +33,7 @@ public class DeltaCodeEditor : ModuleRules
             "PythonScriptPlugin",
             "Projects",
             "SourceControl",
+            "AIModule",
         });
     }
 }
