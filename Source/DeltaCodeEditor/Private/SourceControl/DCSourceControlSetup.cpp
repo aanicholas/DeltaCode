@@ -110,68 +110,59 @@ namespace DCSourceControlSetupPrivate
 	/**
 	 * Multi-section markdown shown in the Response box when the user picks
 	 * "Learn about source control options". The Response box renders plain
-	 * text (no rich markdown), so this is formatted for readability under a
-	 * simple word-wrapping TextBlock: single blank line between blocks,
-	 * bullets flush-left, no double blank lines, no leading indent on
-	 * wrapped continuations.
+	 * text (no rich markdown), so this is formatted for that environment:
+	 *   - Headings (`#`, `##`) flush-left.
+	 *   - Body paragraphs and bullets indented with two spaces under their
+	 *     parent heading so the visual hierarchy reads even without
+	 *     markdown rendering.
+	 *   - One C++ literal per output line — no concatenated continuations
+	 *     so there is zero risk of an accidental trailing space sneaking
+	 *     into the middle of a rendered line.
+	 *   - Single blank line between blocks; never two.
 	 */
 	static const TCHAR* ExplanationMarkdown = TEXT(
 		"# Source Control for Unreal Engine 5\n"
 		"\n"
-		"DeltaCode strongly recommends source control before any Danger Zone operation. "
-		"Build Mission clears and rebuilds level content — without version control, "
-		"mistakes are unrecoverable. Three mainstream options work well with UE5:\n"
+		"  DeltaCode strongly recommends source control before any Danger Zone operation. Build Mission clears and rebuilds level content — without version control, mistakes are unrecoverable. Three mainstream options work well with UE5.\n"
 		"\n"
 		"## Git (free, distributed)\n"
 		"\n"
-		"Best for: solo developers, small teams, plugin authors. Free, ubiquitous, "
-		"integrates with GitHub / GitLab / Bitbucket / self-hosted.\n"
+		"  Best for: solo developers, small teams, plugin authors. Free, ubiquitous, integrates with GitHub / GitLab / Bitbucket / self-hosted.\n"
 		"\n"
-		"Caveats:\n"
-		"- Large binary assets bloat the repo over time. Use Git LFS for any binary file over a few hundred KB.\n"
-		"- No asset locking — two team members editing the same .uasset will collide and a merge is effectively impossible. For teams over ~3 people working on the same content, consider Perforce or Plastic.\n"
+		"  Caveats:\n"
+		"  - Large binary assets bloat the repo over time. Use Git LFS for any binary file over a few hundred KB.\n"
+		"  - No asset locking. Two team members editing the same .uasset will collide and a merge is effectively impossible. For teams over ~3 people working on the same content, consider Perforce or Plastic.\n"
 		"\n"
-		"Setup: install Git from git-scm.com. DeltaCode's \"Set up Git\" button runs "
-		"`git init` and writes a UE5-appropriate .gitignore. For LFS, run "
-		"`git lfs install` after init, then "
-		"`git lfs track \"*.uasset\" \"*.umap\" \"*.fbx\" \"*.wav\" \"*.png\"`.\n"
+		"  Setup: install Git from git-scm.com. DeltaCode's \"Set up Git\" button runs `git init` and writes a UE5-appropriate .gitignore. For LFS, run `git lfs install` after init, then `git lfs track \"*.uasset\" \"*.umap\" \"*.fbx\" \"*.wav\" \"*.png\"`.\n"
 		"\n"
 		"## Perforce / Helix Core (paid, centralized)\n"
 		"\n"
-		"Best for: full game studios, teams with dedicated tech-art pipelines, projects "
-		"with hundreds of GB of binary assets. Industry standard for AAA UE development. "
-		"Asset locking prevents the most common multi-person collision pain.\n"
+		"  Best for: full game studios, teams with dedicated tech-art pipelines, projects with hundreds of GB of binary assets. Industry standard for AAA UE development. Asset locking prevents the most common multi-person collision pain.\n"
 		"\n"
-		"Caveats:\n"
-		"- Requires a Perforce server. Self-hosted is free for up to 5 users / 20 workspaces (\"Helix Core Free\") but you administer the server yourself.\n"
-		"- Steeper learning curve than Git for first-time users.\n"
-		"- DeltaCode cannot automate Perforce setup — server provisioning, user accounts, and depot layout are too project-specific.\n"
+		"  Caveats:\n"
+		"  - Requires a Perforce server. Self-hosted is free for up to 5 users / 20 workspaces (\"Helix Core Free\") but you administer the server yourself.\n"
+		"  - Steeper learning curve than Git for first-time users.\n"
+		"  - DeltaCode cannot automate Perforce setup. Server provisioning, user accounts, and depot layout are too project-specific.\n"
 		"\n"
-		"Setup: download Helix Core from perforce.com, install the P4V client and the "
-		"server (P4D) for self-hosted, then connect from UE5 via Source Control → "
-		"Connect to Source Control → Provider: Perforce.\n"
+		"  Setup: download Helix Core from perforce.com, install the P4V client and the server (P4D) for self-hosted, then connect from UE5 via Source Control → Connect to Source Control → Provider: Perforce.\n"
 		"\n"
 		"## Plastic SCM / Unity Version Control (free for small teams)\n"
 		"\n"
-		"Best for: small-to-medium teams who want Perforce-style asset locking without "
-		"running a server. Free for up to 3 users / 5 GB; paid tiers for more.\n"
+		"  Best for: small-to-medium teams who want Perforce-style asset locking without running a server. Free for up to 3 users / 5 GB; paid tiers for more.\n"
 		"\n"
-		"Caveats:\n"
-		"- Smaller community than Git or Perforce — fewer Stack Overflow answers when you hit a problem.\n"
-		"- Cloud-only on the free tier; self-hosted server is a paid feature.\n"
+		"  Caveats:\n"
+		"  - Smaller community than Git or Perforce. Fewer Stack Overflow answers when you hit a problem.\n"
+		"  - Cloud-only on the free tier; self-hosted server is a paid feature.\n"
 		"\n"
-		"Setup: download from plasticscm.com, create a cloud organisation, clone your "
-		"repo, then connect from UE5 via Source Control → Provider: Plastic.\n"
+		"  Setup: download from plasticscm.com, create a cloud organisation, clone your repo, then connect from UE5 via Source Control → Provider: Plastic.\n"
 		"\n"
 		"## DeltaCode's recommendation\n"
 		"\n"
-		"- Solo or 1–3 person team, mostly C++ / Blueprint → Git + LFS. DeltaCode's \"Set up Git\" button handles the init step.\n"
-		"- 3+ person team or asset-heavy content → Plastic SCM if you want no-server convenience, Perforce if you have server budget and a sysadmin.\n"
-		"- Studio with existing pipeline → match whatever the team already uses.\n"
+		"  - Solo or 1–3 person team, mostly C++ / Blueprint → Git + LFS. The \"Set up Git\" button handles the init step.\n"
+		"  - 3+ person team or asset-heavy content → Plastic SCM if you want no-server convenience, Perforce if you have server budget and a sysadmin.\n"
+		"  - Studio with existing pipeline → match whatever the team already uses.\n"
 		"\n"
-		"After configuring source control, re-click Build Mission. The gate will "
-		"recognise the active provider and proceed straight to the destructive-action "
-		"confirmation.\n"
+		"  After configuring source control, re-click Build Mission. The gate will recognise the active provider and proceed straight to the destructive-action confirmation.\n"
 	);
 
 	/**
