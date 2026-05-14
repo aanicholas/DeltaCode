@@ -36,6 +36,13 @@
 import unreal
 
 # ─── CONSTANTS ───────────────────────────────────────────────────────────────
+#
+# TODO(P4): Per .claude/skills/lyra-architecture.md §6, Lyra projects should
+# write DeltaCode-generated shared assets to
+# Plugins/GameFeatures/DeltaCodeCore/Content/... rather than /Game/DeltaCode/.
+# We are deferring that until Phase 4 (DeltaCodeCore Game Feature scaffold);
+# for now /Game/DeltaCode/ remains the destination in both Lyra and non-Lyra
+# projects. Revisit when P4 lands and re-target these constants.
 
 _DC_DAMAGE_PATH        = "/Game/DeltaCode/Damage"
 _GE_KILL_NAME          = "GE_DC_Kill"
