@@ -82,8 +82,23 @@ void ADCEnemyAIController::OnPossess(APawn* InPawn)
 	// Start the pawn-authored behaviour tree. Silently no-op for pawns that
 	// don't specify one — designers can still drive AI purely through BP.
 	ADCEnemyBase* Enemy = Cast<ADCEnemyBase>(InPawn);
-	if (!Enemy || !Enemy->BehaviorTree)
+	if (!Enemy)
 	{
+		// TEMP DIAGNOSTIC: pawn isn't a DCEnemyBase — possessed something else.
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DC] Pawn %s is not an ADCEnemyBase (class=%s) — BT will not start."),
+			InPawn ? *InPawn->GetName() : TEXT("<null>"),
+			InPawn ? *InPawn->GetClass()->GetName() : TEXT("<null>"));
+		return;
+	}
+	if (!Enemy->BehaviorTree)
+	{
+		// TEMP DIAGNOSTIC: the pawn-side BT field is null — BP wiring missing
+		// or dc_create_ai_assets failed to set the default.
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DC] %s ADCEnemyBase::BehaviorTree is NULL — check BP "
+			     "Class Defaults > BehaviorTree."),
+			*Enemy->GetName());
 		return;
 	}
 
@@ -98,15 +113,35 @@ void ADCEnemyAIController::OnPossess(APawn* InPawn)
 	}
 
 	UBlackboardComponent* BBComp = BlackboardComponent.Get();
-	if (UseBlackboard(Tree->BlackboardAsset, BBComp))
+	if (!UseBlackboard(Tree->BlackboardAsset, BBComp))
 	{
-		// Seed HomeLocation with the spawn point so WanderFromHome has a
-		// leash origin before any patrol logic overrides it.
-		BlackboardComponent->SetValueAsVector(
-			DCAIBlackboardKeys::HomeLocation, InPawn->GetActorLocation());
-
-		BehaviorTreeComponent->StartTree(*Tree);
+		// TEMP DIAGNOSTIC: AAIController::UseBlackboard returned false —
+		// usually means the BB asset failed to initialise or the BBComp ref
+		// the controller holds is null.
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DC] UseBlackboard FAILED for %s (BT=%s BB=%s BBComp=%s)"),
+			*Enemy->GetName(),
+			*Tree->GetName(),
+			*Tree->BlackboardAsset->GetName(),
+			BBComp ? *BBComp->GetName() : TEXT("<null>"));
+		return;
 	}
+
+	// Seed HomeLocation with the spawn point so WanderFromHome has a
+	// leash origin before any patrol logic overrides it.
+	BlackboardComponent->SetValueAsVector(
+		DCAIBlackboardKeys::HomeLocation, InPawn->GetActorLocation());
+
+	BehaviorTreeComponent->StartTree(*Tree);
+
+	// TEMP DIAGNOSTIC: confirm StartTree call site reached and report which
+	// BT + BB pair were active at that moment. Pair with [DC-BT] task logs
+	// to see whether the tree actually ticks after this point.
+	UE_LOG(LogTemp, Display,
+		TEXT("[DC] StartTree result for %s: BT=%s BB=%s"),
+		*InPawn->GetName(),
+		*Tree->GetName(),
+		*Tree->BlackboardAsset->GetName());
 }
 
 void ADCEnemyAIController::OnUnPossess()
