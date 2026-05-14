@@ -102,6 +102,34 @@ def _create_blackboard():
 
 # ─── BEHAVIOR TREE ───────────────────────────────────────────────────────────
 
+def _wire_blackboard(bt_full_path, bb_full_path):
+    """Wire BT.BlackboardAsset via the C++ UDCAIEditorBridge.
+
+    UBehaviorTree::BlackboardAsset is protected in UE5.7+, so Python's
+    set_editor_property cannot reach it (the access check honours the C++
+    access modifier). The bridge bypasses this by using FObjectProperty
+    reflection, which is a data-level operation unaffected by `protected`.
+
+    Returns True iff the bridge reports success. Failures are logged but
+    don't raise — the caller decides whether to abort or continue.
+    """
+    try:
+        ok, msg = unreal.DCAIEditorBridge.set_behavior_tree_blackboard(
+            bt_full_path, bb_full_path)
+        if ok:
+            _log(f"BlackboardAsset wired via bridge: {msg}")
+        else:
+            _err(f"DCAIEditorBridge failed: {msg}")
+        return ok
+    except AttributeError:
+        _err("unreal.DCAIEditorBridge not registered — rebuild the plugin "
+             "and restart the editor so the new UCLASS is reflected.")
+        return False
+    except Exception as e:
+        _err(f"DCAIEditorBridge call raised: {e}")
+        return False
+
+
 def _create_behavior_tree(bb_asset):
     """Duplicate the plugin's pre-authored BT template into /Game/DeltaCode/AI/
     and wire its BlackboardAsset.
@@ -116,23 +144,19 @@ def _create_behavior_tree(bb_asset):
     """
     # Self-heal path: a prior run may have produced a BT with the BB
     # reference dropped (UE's duplicate_asset can null external refs).
-    # If we find the BT already exists, verify it has the right BB and
-    # re-wire if not.
+    # If we find the BT already exists, route the rewire through the
+    # bridge — the BlackboardAsset property is protected in UE5.7+ so
+    # set_editor_property cannot reach it.
     if unreal.EditorAssetLibrary.does_asset_exist(_BT_FULL_PATH):
         existing = unreal.load_asset(_BT_FULL_PATH)
         if existing is not None and bb_asset is not None:
-            try:
-                current = existing.get_editor_property("blackboard_asset")
-            except Exception:
-                current = None
-            if current != bb_asset:
-                _warn(f"Existing BT at {_BT_FULL_PATH} has missing/wrong "
-                      f"BlackboardAsset — rewiring to {bb_asset.get_name()}")
-                existing.set_editor_property("blackboard_asset", bb_asset)
-                unreal.EditorAssetLibrary.save_loaded_asset(existing)
-                _log(f"Rewired and saved {_BT_FULL_PATH}")
-            else:
-                _log(f"BehaviorTree already exists and is wired: {_BT_FULL_PATH}")
+            # We cannot cheaply detect "BT already wired correctly" because
+            # the getter is also gated when the underlying property is
+            # protected — calling the bridge unconditionally is idempotent
+            # (writing the same value is a no-op the editor handles).
+            if _wire_blackboard(_BT_FULL_PATH, _BB_FULL_PATH):
+                _log(f"Existing BT at {_BT_FULL_PATH} confirmed wired to "
+                     f"{_BB_NAME}")
         return existing
 
     if not unreal.EditorAssetLibrary.does_asset_exist(_BT_TEMPLATE_PATH):
@@ -149,27 +173,13 @@ def _create_behavior_tree(bb_asset):
         return None
 
     if bb_asset is not None:
-        try:
-            bt.set_editor_property("blackboard_asset", bb_asset)
-            # save_loaded_asset serialises the live in-memory object.
-            # save_asset(path) does load+save which can re-read the disk
-            # state and drop the property change we just made — this is
-            # the bug behind "BT has no BlackboardAsset" log entries.
-            unreal.EditorAssetLibrary.save_loaded_asset(bt)
-            verify = bt.get_editor_property("blackboard_asset")
-            if verify == bb_asset:
-                _log(f"BlackboardAsset → {bb_asset.get_name()} (verified)")
-            else:
-                _err(f"BlackboardAsset assignment failed silently — reads "
-                     f"back as {verify}. Open {_BT_FULL_PATH} and set "
-                     f"BlackboardAsset to {_BB_NAME} manually.")
-        except Exception as e:
-            _warn(f"Failed to assign BlackboardAsset — {e}")
+        # Bridge writes + saves in one call. No need for a separate
+        # save_loaded_asset step here.
+        _wire_blackboard(_BT_FULL_PATH, _BB_FULL_PATH)
     else:
         _warn("Blackboard asset is None — BT will not run at possession time.")
         unreal.EditorAssetLibrary.save_loaded_asset(bt)
 
-    _log(f"Saved {_BT_FULL_PATH}")
     return bt
 
 
