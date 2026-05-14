@@ -455,8 +455,76 @@ _CORE_SCALES = {
     "B_DC_BossBase": 1.5,
 }
 
-_MANNEQUIN_MESH = "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"
-_MANNEQUIN_ANIM_CLASS = "/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C"
+# Lyra 5.7 mannequin paths. SKM_Manny (not _Invis) so enemies are visible;
+# ABP_Mannequin_Base is the full locomotion AnimBP.
+_MANNEQUIN_MESH = "/Game/Characters/Heroes/Mannequin/Meshes/SKM_Manny.SKM_Manny"
+_MANNEQUIN_ANIM_CLASS = "/Game/Characters/Heroes/Mannequin/Animations/ABP_Mannequin_Base.ABP_Mannequin_Base_C"
+
+# Legacy fallbacks for non-Lyra UE template projects and pre-5.4 Lyra layouts.
+# _resolve_mannequin_mesh()/_resolve_mannequin_anim_class() try the primary
+# path first then walk these in order; if none load, warns once and returns
+# None so callers can skip mesh assignment instead of crashing.
+_MANNEQUIN_MESH_FALLBACKS = [
+    "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple",
+    "/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple",
+]
+_MANNEQUIN_ANIM_CLASS_FALLBACKS = [
+    "/Game/Characters/Mannequins/Animations/ABP_Manny.ABP_Manny_C",
+    "/Game/Characters/Mannequins/Animations/ABP_Quinn.ABP_Quinn_C",
+]
+
+# Resolution caches. None = not yet tried. False = tried and failed (warned).
+_RESOLVED_MANNEQUIN_MESH = None
+_RESOLVED_MANNEQUIN_ANIM_CLASS = None
+
+
+def _resolve_mannequin_mesh():
+    """Return the mannequin SkeletalMesh asset, trying the Lyra 5.7 path first
+    then falling back to legacy template paths. Caches the result so repeated
+    calls don't re-load. Logs a single warning the first time nothing resolves
+    and returns None thereafter — callers should skip mesh assignment in that
+    case rather than crashing."""
+    global _RESOLVED_MANNEQUIN_MESH
+    if _RESOLVED_MANNEQUIN_MESH is False:
+        return None
+    if _RESOLVED_MANNEQUIN_MESH is not None:
+        return _RESOLVED_MANNEQUIN_MESH
+    candidates = (_MANNEQUIN_MESH, *_MANNEQUIN_MESH_FALLBACKS)
+    for path in candidates:
+        asset = unreal.load_asset(path)
+        if asset is not None:
+            _RESOLVED_MANNEQUIN_MESH = asset
+            return asset
+    unreal.log_warning(
+        f"DeltaCode: No mannequin SkeletalMesh found. Tried: "
+        f"{', '.join(candidates)}. Spawned actors will be invisible — "
+        f"update _MANNEQUIN_MESH in dc_danger_zone.py to match this "
+        f"project's mannequin location.")
+    _RESOLVED_MANNEQUIN_MESH = False
+    return None
+
+
+def _resolve_mannequin_anim_class():
+    """Return the mannequin AnimBlueprint generated UClass, with same primary
+    + fallback + warn-once semantics as _resolve_mannequin_mesh()."""
+    global _RESOLVED_MANNEQUIN_ANIM_CLASS
+    if _RESOLVED_MANNEQUIN_ANIM_CLASS is False:
+        return None
+    if _RESOLVED_MANNEQUIN_ANIM_CLASS is not None:
+        return _RESOLVED_MANNEQUIN_ANIM_CLASS
+    candidates = (_MANNEQUIN_ANIM_CLASS, *_MANNEQUIN_ANIM_CLASS_FALLBACKS)
+    for path in candidates:
+        cls = unreal.load_class(None, path)
+        if cls is not None:
+            _RESOLVED_MANNEQUIN_ANIM_CLASS = cls
+            return cls
+    unreal.log_warning(
+        f"DeltaCode: No mannequin AnimBlueprint found. Tried: "
+        f"{', '.join(candidates)}. Spawned actors will not animate.")
+    _RESOLVED_MANNEQUIN_ANIM_CLASS = False
+    return None
+
+
 _CORE_PACKAGE_PATH = "/Game/DeltaCode/Core"
 
 # Vertical offset applied to every mannequin-driven actor (enemies, bosses).
@@ -612,7 +680,7 @@ def _apply_mesh_to_actor(actor, class_path):
         _inspect_preequipped_once(actor, class_path)
         return
 
-    skel_mesh = unreal.load_asset(_MANNEQUIN_MESH)
+    skel_mesh = _resolve_mannequin_mesh()
     if skel_mesh is None:
         return
     # Prefer the inherited ACharacter mesh (CharacterMesh0). In a blank
