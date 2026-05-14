@@ -697,10 +697,11 @@ def _apply_mesh_to_actor(actor, class_path):
         # on the capsule bottom rather than floating at its centre.
         mesh_comp.set_editor_property(
             "relative_location", unreal.Vector(0, 0, -_CHARACTER_Z_OFFSET))
-        # Third-person combat anim BP — best fit for enemy/boss behaviour.
-        anim_class = unreal.load_class(
-            None,
-            "/Game/Variant_Combat/Anims/ABP_Manny_Combat.ABP_Manny_Combat_C")
+        # Mannequin locomotion AnimBP. ABP_Manny_Combat (used pre-5.7) was
+        # removed in the Lyra 5.7 reorganisation, so we route through the
+        # resolver which tries the 5.7 ABP_Mannequin_Base first and falls
+        # back to legacy paths for non-Lyra projects.
+        anim_class = _resolve_mannequin_anim_class()
         if anim_class is not None:
             # set_editor_property("anim_class", ...) updates the UPROPERTY so the
             # Details panel reads correctly, but does NOT call InitAnim — and the
