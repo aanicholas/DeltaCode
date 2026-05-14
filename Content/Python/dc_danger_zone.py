@@ -48,12 +48,16 @@ _FLOOR_CONFIGS = {
 DC_CLASSES = {
     "pickup_base":     "/Game/DeltaCode/Core/B_DC_PickupBase.B_DC_PickupBase_C",
     "objective":       "/Game/DeltaCode/Core/B_DC_ObjectiveBase.B_DC_ObjectiveBase_C",
-    # Combat-variant template enemy — ships pre-wired with mesh, anim,
-    # AIController, and BehaviorTree. _apply_scan_to_dc_classes() may
-    # override boss_base at run_danger_zone start if a dedicated boss
-    # variant exists in the scan results.
-    "enemy_base":      "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy.BP_CombatEnemy_C",
-    "boss_base":       "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy.BP_CombatEnemy_C",
+    # DeltaCode enemy/boss BPs parented off ADCEnemyBase. Possessed by
+    # ADCEnemyAIController, running BT_DC_Enemy with BB_DC_Enemy_Default —
+    # the BT/BB pair is duplicated from the plugin template by
+    # dc_create_ai_assets.py on every Build Mission. Lyra's BP_CombatEnemy
+    # was the prior default but it depends on a Lyra Experience init pass
+    # we don't currently provide outside Experience context, so enemies
+    # spawned manually ended up visible but inert. P3 (B_DC_LyraEnemyBase
+    # parented off ALyraCharacter) will restore Lyra-native polish.
+    "enemy_base":      "/Game/DeltaCode/Core/B_DC_EnemyBase.B_DC_EnemyBase_C",
+    "boss_base":       "/Game/DeltaCode/Core/B_DC_BossBase.B_DC_BossBase_C",
     "spawn_zone":      "/Game/DeltaCode/Core/B_DC_SpawnZone.B_DC_SpawnZone_C",
     "extraction_zone": "/Game/DeltaCode/Core/B_DC_ExtractionZone.B_DC_ExtractionZone_C",
 }
@@ -62,9 +66,12 @@ DC_CLASSES = {
 # from the template. _apply_mesh_to_actor skips them entirely so we don't
 # overwrite the template's intended setup. Match is done via substring so
 # either the package path or `.ClassName_C` form hits.
-_PRE_EQUIPPED_CLASS_PATHS = (
-    "/Game/Variant_Combat/Blueprints/AI/BP_CombatEnemy",
-)
+#
+# Empty for now — the previous BP_CombatEnemy entry was removed when we
+# swapped enemy_base / boss_base to B_DC_EnemyBase / B_DC_BossBase (which
+# need _apply_mesh_to_actor to give them the Lyra mannequin). Add entries
+# back when P3 introduces a pre-equipped LyraCharacter-parented enemy BP.
+_PRE_EQUIPPED_CLASS_PATHS = ()
 
 # Dedicated non-World-Partition level that Danger Zone operates on. WP levels
 # build actor descriptors at save time, which asserts in OnActorDescInstanceAdded
