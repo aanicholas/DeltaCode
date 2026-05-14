@@ -38,6 +38,14 @@ for DEST in "${PLUGIN_DESTINATIONS[@]}"; do
     rsync -a --delete \
         "$SOURCE_REPO/Source/DeltaCodeEditor/" \
         "$DEST/Source/DeltaCodeEditor/"
+
+    # Plugin-shipped Content (Blueprint templates, Behavior Trees, etc.)
+    # under Content/DeltaCode/. Mirrored with --delete so removed templates
+    # don't linger in host projects. Excludes .DS_Store noise.
+    mkdir -p "$DEST/Content/DeltaCode"
+    rsync -a --delete --exclude='.DS_Store' \
+        "$SOURCE_REPO/Content/DeltaCode/" \
+        "$DEST/Content/DeltaCode/"
 done
 
-echo "DeltaCode plugin (Python + C++) synced to ${#PLUGIN_DESTINATIONS[@]} project(s)."
+echo "DeltaCode plugin (Python + C++ + Content) synced to ${#PLUGIN_DESTINATIONS[@]} project(s)."
