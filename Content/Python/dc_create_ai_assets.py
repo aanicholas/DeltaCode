@@ -112,10 +112,24 @@ def _wire_blackboard(bt_full_path, bb_full_path):
 
     Returns True iff the bridge reports success. Failures are logged but
     don't raise — the caller decides whether to abort or continue.
+
+    Return-shape note: UE Python wraps UFUNCTIONs with output parameters by
+    returning a tuple. For this signature the empirical shape on 5.7 is
+    longer than the (ok, msg) 2-tuple one might expect — by-ref `const
+    FString&` inputs are surfaced alongside the actual out param. We unpack
+    defensively: first element is the bool return, last element is the
+    OutMessage string. Authoritative log record lives on the C++ side via
+    UE_LOG(LogDCAIEditorBridge), so a missed Python message is cosmetic.
     """
     try:
-        ok, msg = unreal.DCAIEditorBridge.set_behavior_tree_blackboard(
+        result = unreal.DCAIEditorBridge.set_behavior_tree_blackboard(
             bt_full_path, bb_full_path)
+        if isinstance(result, tuple):
+            ok = bool(result[0])
+            msg = str(result[-1]) if len(result) > 1 else ""
+        else:
+            ok = bool(result)
+            msg = ""
         if ok:
             _log(f"BlackboardAsset wired via bridge: {msg}")
         else:
