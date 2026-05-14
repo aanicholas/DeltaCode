@@ -33,6 +33,13 @@ UBTTask_DCAttackTarget::UBTTask_DCAttackTarget()
 EBTNodeResult::Type UBTTask_DCAttackTarget::ExecuteTask(UBehaviorTreeComponent& OwnerComp,
                                                         uint8* /*NodeMemory*/)
 {
+	// TEMP DIAGNOSTIC (remove once movement is verified).
+	UE_LOG(LogTemp, Display,
+		TEXT("[DC-BT] Attack::ExecuteTask enter on %s"),
+		OwnerComp.GetAIOwner() && OwnerComp.GetAIOwner()->GetPawn()
+			? *OwnerComp.GetAIOwner()->GetPawn()->GetName()
+			: TEXT("<no pawn>"));
+
 	AAIController* AI = OwnerComp.GetAIOwner();
 	if (!AI)
 	{

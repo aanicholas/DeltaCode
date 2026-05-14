@@ -34,6 +34,15 @@ bool UBTTask_DCWanderFromHome::ResolveDestination(AAIController& /*AI*/,
                                                   AActor*& /*OutTargetActor*/,
                                                   FVector& OutTargetLocation) const
 {
+	// TEMP DIAGNOSTIC (remove once movement is verified): a top-of-function
+	// marker so we can confirm ResolveDestination was even entered, before
+	// any other code runs. If [DC-Wander entry] never appears but [DC-BT]
+	// MoveBase logs do, something is short-circuiting between ExecuteTask
+	// and ResolveDestination — e.g. an early return for missing AI/Pawn.
+	UE_LOG(LogTemp, Display,
+		TEXT("[DC-Wander entry] %s ResolveDestination called"),
+		*Pawn.GetName());
+
 	// TEMP DIAGNOSTIC (remove once movement is verified): logs every wander
 	// resolve attempt so we can see whether the nav system is present, what
 	// origin we're searching from, whether the radius query succeeds, and
