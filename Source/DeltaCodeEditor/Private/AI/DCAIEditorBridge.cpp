@@ -19,6 +19,8 @@
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BlackboardData.h"
 #include "Editor.h"
+#include "EditorBuildUtils.h"
+#include "Engine/World.h"
 #include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/UnrealType.h"
 
@@ -91,4 +93,35 @@ bool UDCAIEditorBridge::SetBehaviorTreeBlackboard(
 	OutMessage = FString::Printf(TEXT("BT %s -> BB %s"), *BTPath, *BBPath);
 	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
 	return true;
+}
+
+bool UDCAIEditorBridge::RebuildNavigationMesh(FString& OutMessage)
+{
+	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+	if (!World)
+	{
+		OutMessage = TEXT("No editor world available for navmesh rebuild");
+		UE_LOG(LogDCAIEditorBridge, Warning, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// FEditorBuildUtils::EditorBuild routes through the same editor pipeline
+	// the "Build > Build Paths" menu uses — blocking, with progress UI, and
+	// most importantly synchronous enough that tiles are queryable by the
+	// time we return (unlike the `RebuildNavigation` console command, which
+	// only queues an async tile rebuild).
+	const bool bOk = FEditorBuildUtils::EditorBuild(
+		World, FBuildOptions::BuildAIPaths);
+
+	if (bOk)
+	{
+		OutMessage = TEXT("NavMesh rebuilt synchronously via FEditorBuildUtils::EditorBuild");
+		UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+	}
+	else
+	{
+		OutMessage = TEXT("FEditorBuildUtils::EditorBuild returned false — check Output Log for nav build errors");
+		UE_LOG(LogDCAIEditorBridge, Warning, TEXT("%s"), *OutMessage);
+	}
+	return bOk;
 }

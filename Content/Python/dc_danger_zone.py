@@ -263,19 +263,44 @@ def _spawn_arena_entry_trigger(label, position):
 
 
 def rebuild_navmesh():
-    """Rebuild navigation for the current editor world so spawned AI can path.
+    """Synchronously rebuild navigation for the current editor world so AI
+    can path the moment PIE starts.
 
-    UNavigationSystemV1::Build() is not a UFUNCTION, so it cannot be called
-    from Python directly. We trigger the rebuild via the engine console command
-    instead, which is the standard workaround for editor Python scripts.
+    Routed through unreal.DCAIEditorBridge.rebuild_navigation_mesh, which
+    calls FEditorBuildUtils::EditorBuild(BuildAIPaths) — same path the
+    editor's Build menu uses, blocking with progress UI. The previous
+    `RebuildNavigation` console command was async, so PIE could start
+    before tiles existed and enemies would stand still even though
+    BB/BT/possession were all wired correctly.
+
+    Falls back to the async console command on older builds where the
+    bridge hasn't been compiled in yet, with a warning so the user knows
+    the rebuild may not complete before PIE.
     """
     try:
-        world = get_editor_world()
-        if world is None:
-            unreal.log_warning("DeltaCode: No editor world — skipping navmesh rebuild.")
-            return
-        unreal.SystemLibrary.execute_console_command(world, "RebuildNavigation")
-        unreal.log("DeltaCode: Navigation mesh rebuild triggered.")
+        result = unreal.DCAIEditorBridge.rebuild_navigation_mesh()
+        if isinstance(result, tuple):
+            ok = bool(result[0])
+            msg = str(result[-1]) if len(result) > 1 else ""
+        else:
+            ok = bool(result)
+            msg = ""
+        if ok:
+            unreal.log(f"DeltaCode: NavMesh built — {msg}")
+        else:
+            unreal.log_warning(f"DeltaCode: NavMesh build failed — {msg}")
+    except AttributeError:
+        unreal.log_warning(
+            "DeltaCode: DCAIEditorBridge.rebuild_navigation_mesh not "
+            "registered — rebuild the plugin and restart the editor. "
+            "Falling back to async console command for now.")
+        try:
+            world = get_editor_world()
+            if world is not None:
+                unreal.SystemLibrary.execute_console_command(
+                    world, "RebuildNavigation")
+        except Exception as e:
+            unreal.log_warning(f"DeltaCode: NavMesh fallback failed — {e}")
     except Exception as e:
         unreal.log_warning(f"DeltaCode: NavMesh rebuild skipped — {e}")
 

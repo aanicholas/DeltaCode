@@ -54,6 +54,9 @@ void ADCEnemyAIController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
+	UE_LOG(LogTemp, Display, TEXT("[DC] DCEnemyAIController possessing: %s"),
+		InPawn ? *InPawn->GetName() : TEXT("<null>"));
+
 	// [INPUT] From: pawn's UDCFactionComponent — drives AI perception affiliation
 	if (InPawn)
 	{

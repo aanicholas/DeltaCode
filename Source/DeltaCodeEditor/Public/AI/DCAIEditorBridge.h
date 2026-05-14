@@ -62,4 +62,19 @@ public:
 	static bool SetBehaviorTreeBlackboard(const FString& BTPath,
 	                                      const FString& BBPath,
 	                                      FString& OutMessage);
+
+	/**
+	 * Synchronously rebuild the editor world's navigation mesh via
+	 * FEditorBuildUtils::EditorBuild(BuildAIPaths) — the same code path the
+	 * "Build > Build Paths" menu uses. Blocks until tiles are queryable, so
+	 * PIE-started AI can pathfind immediately. The previous Python path
+	 * (`RebuildNavigation` console command) was asynchronous — PIE could
+	 * start before tiles existed, leaving AI pathfinding broken even when
+	 * the BB and BT were wired correctly.
+	 *
+	 * Python call:
+	 *   ok, msg = unreal.DCAIEditorBridge.rebuild_navigation_mesh()
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DeltaCode|AI")
+	static bool RebuildNavigationMesh(FString& OutMessage);
 };
