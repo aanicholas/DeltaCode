@@ -114,9 +114,26 @@ def _create_behavior_tree(bb_asset):
     and set_editor_property('blackboard_asset', ...) survives the compile step
     because it's a simple UPROPERTY on the BT asset.
     """
+    # Self-heal path: a prior run may have produced a BT with the BB
+    # reference dropped (UE's duplicate_asset can null external refs).
+    # If we find the BT already exists, verify it has the right BB and
+    # re-wire if not.
     if unreal.EditorAssetLibrary.does_asset_exist(_BT_FULL_PATH):
-        _log(f"BehaviorTree already exists: {_BT_FULL_PATH}")
-        return unreal.load_asset(_BT_FULL_PATH)
+        existing = unreal.load_asset(_BT_FULL_PATH)
+        if existing is not None and bb_asset is not None:
+            try:
+                current = existing.get_editor_property("blackboard_asset")
+            except Exception:
+                current = None
+            if current != bb_asset:
+                _warn(f"Existing BT at {_BT_FULL_PATH} has missing/wrong "
+                      f"BlackboardAsset — rewiring to {bb_asset.get_name()}")
+                existing.set_editor_property("blackboard_asset", bb_asset)
+                unreal.EditorAssetLibrary.save_loaded_asset(existing)
+                _log(f"Rewired and saved {_BT_FULL_PATH}")
+            else:
+                _log(f"BehaviorTree already exists and is wired: {_BT_FULL_PATH}")
+        return existing
 
     if not unreal.EditorAssetLibrary.does_asset_exist(_BT_TEMPLATE_PATH):
         _err(f"Template BT not found at {_BT_TEMPLATE_PATH} — plugin may be "
@@ -134,13 +151,24 @@ def _create_behavior_tree(bb_asset):
     if bb_asset is not None:
         try:
             bt.set_editor_property("blackboard_asset", bb_asset)
-            _log(f"BlackboardAsset → {bb_asset.get_name()}")
+            # save_loaded_asset serialises the live in-memory object.
+            # save_asset(path) does load+save which can re-read the disk
+            # state and drop the property change we just made — this is
+            # the bug behind "BT has no BlackboardAsset" log entries.
+            unreal.EditorAssetLibrary.save_loaded_asset(bt)
+            verify = bt.get_editor_property("blackboard_asset")
+            if verify == bb_asset:
+                _log(f"BlackboardAsset → {bb_asset.get_name()} (verified)")
+            else:
+                _err(f"BlackboardAsset assignment failed silently — reads "
+                     f"back as {verify}. Open {_BT_FULL_PATH} and set "
+                     f"BlackboardAsset to {_BB_NAME} manually.")
         except Exception as e:
             _warn(f"Failed to assign BlackboardAsset — {e}")
     else:
         _warn("Blackboard asset is None — BT will not run at possession time.")
+        unreal.EditorAssetLibrary.save_loaded_asset(bt)
 
-    unreal.EditorAssetLibrary.save_asset(_BT_FULL_PATH)
     _log(f"Saved {_BT_FULL_PATH}")
     return bt
 
