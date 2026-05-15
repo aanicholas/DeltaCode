@@ -1124,5 +1124,19 @@ def run_danger_zone(mission_template):
     create_floor(mission_template)
     builder(world)
     unreal.log(f"DeltaCode: Danger Zone complete — template='{mission_template}'")
-    unreal.log("DeltaCode: NavMesh requires manual rebuild. Press P in the "
-               "viewport to visualize, then use Build > Build Paths.")
+
+    # Persist the just-built mission so the user can iterate without an
+    # extra Save All step. Save All has been observed to no-op on the
+    # built level (the active-editor-level pointer can desync from the
+    # level that received the spawns), so we save explicitly here.
+    # Save failures are non-fatal — the level is still in memory either
+    # way, and the warning surfaces in the Output Log for diagnosis.
+    try:
+        if les.save_current_level():
+            unreal.log("DeltaCode: level saved.")
+        else:
+            unreal.log_warning(
+                "DeltaCode: save_current_level returned false — "
+                "save the level manually via File > Save Current Level.")
+    except Exception as e:
+        unreal.log_warning(f"DeltaCode: save_current_level raised — {e}")
