@@ -95,7 +95,10 @@ def _create_blackboard():
         _warn(f"Failed to populate blackboard keys — {e}. "
               f"Open {_BB_NAME} and add keys manually.")
 
-    unreal.EditorAssetLibrary.save_asset(_BB_FULL_PATH)
+    # save_loaded_asset persists the live in-memory object — save_asset(path)
+    # is load-then-save and discards the keys we just set in memory, which is
+    # why BB_DC_Enemy_Default previously shipped with only SelfActor.
+    unreal.EditorAssetLibrary.save_loaded_asset(bb)
     _log(f"Saved {_BB_FULL_PATH}")
     return bb
 
