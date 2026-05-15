@@ -18,7 +18,6 @@
 #include "AI/DCAIBlackboardKeys.h"
 
 #include "AIController.h"
-#include "Actors/DCCharacterBase.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Components/DCEquipmentComponent.h"
@@ -39,13 +38,16 @@ EBTNodeResult::Type UBTTask_DCAttackTarget::ExecuteTask(UBehaviorTreeComponent& 
 		return EBTNodeResult::Failed;
 	}
 
-	ADCCharacterBase* Character = Cast<ADCCharacterBase>(AI->GetPawn());
-	if (!Character)
+	APawn* Pawn = AI->GetPawn();
+	if (!Pawn)
 	{
 		return EBTNodeResult::Failed;
 	}
 
-	UDCEquipmentComponent* Equipment = Character->GetEquipmentComponent();
+	// Component lookup instead of Cast<ADCCharacterBase> so any pawn carrying a
+	// UDCEquipmentComponent works — including B_DC_LyraEnemyBase parented off
+	// ALyraCharacter, which can't share our C++ inheritance chain.
+	UDCEquipmentComponent* Equipment = Pawn->FindComponentByClass<UDCEquipmentComponent>();
 	if (!Equipment)
 	{
 		return EBTNodeResult::Failed;
@@ -59,9 +61,9 @@ EBTNodeResult::Type UBTTask_DCAttackTarget::ExecuteTask(UBehaviorTreeComponent& 
 		if (AActor* Target = Cast<AActor>(BB->GetValueAsObject(DCAIBlackboardKeys::TargetActor)))
 		{
 			const FRotator Look = UKismetMathLibrary::FindLookAtRotation(
-				Character->GetActorLocation(), Target->GetActorLocation());
+				Pawn->GetActorLocation(), Target->GetActorLocation());
 			// Yaw-only so we don't tip the mesh when the player is above/below.
-			Character->SetActorRotation(FRotator(0.0f, Look.Yaw, 0.0f));
+			Pawn->SetActorRotation(FRotator(0.0f, Look.Yaw, 0.0f));
 		}
 	}
 

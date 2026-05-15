@@ -18,6 +18,7 @@
 
 #include "CoreMinimal.h"
 #include "Actors/DCCharacterBase.h"
+#include "AI/DCEnemyAIPawn.h"
 #include "Types/DCCoreTypes.h"
 #include "DCEnemyBase.generated.h"
 
@@ -58,12 +59,20 @@ struct DELTACODE_API FDCLootDrop
  * [DEPENDS ON] ADCEnemyAIController
  */
 UCLASS(BlueprintType, Blueprintable)
-class DELTACODE_API ADCEnemyBase : public ADCCharacterBase
+class DELTACODE_API ADCEnemyBase : public ADCCharacterBase,
+                                   public IDCEnemyAIPawn
 {
 	GENERATED_BODY()
 
 public:
 	ADCEnemyBase();
+
+	// IDCEnemyAIPawn — returns the BehaviorTree UPROPERTY below so
+	// ADCEnemyAIController can drive this pawn without a concrete-class cast.
+	virtual UBehaviorTree* GetEnemyBehaviorTree_Implementation() const override
+	{
+		return BehaviorTree;
+	}
 
 	// Inline per-enemy loot. Each entry is evaluated independently by Chance.
 	// Use for cheap one-off drops unique to this enemy; use SharedLootTable for

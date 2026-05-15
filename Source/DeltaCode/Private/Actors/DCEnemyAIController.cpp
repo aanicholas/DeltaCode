@@ -16,7 +16,8 @@
  */
 #include "Actors/DCEnemyAIController.h"
 #include "AI/DCAIBlackboardKeys.h"
-#include "Actors/DCEnemyBase.h"
+#include "AI/DCEnemyAIData.h"
+#include "AI/DCEnemyAIPawn.h"
 #include "Components/DCFactionComponent.h"
 #include "Data/DCFactionDefinition.h"
 #include "BehaviorTree/BehaviorTree.h"
@@ -79,25 +80,45 @@ void ADCEnemyAIController::OnPossess(APawn* InPawn)
 			this, &ADCEnemyAIController::HandlePerceptionUpdated);
 	}
 
-	// Start the pawn-authored behaviour tree. Silently no-op for pawns that
-	// don't specify one — designers can still drive AI purely through BP.
-	ADCEnemyBase* Enemy = Cast<ADCEnemyBase>(InPawn);
-	if (!Enemy)
-	{
-		return;
-	}
-	if (!Enemy->BehaviorTree)
+	// Start the pawn-authored behaviour tree without casting to a concrete
+	// pawn class so ADCEnemyBase and B_DC_LyraEnemyBase (parented off
+	// ALyraCharacter) can both drive the same controller.
+	//
+	// Resolution order:
+	//   1. IDCEnemyAIPawn — preferred contract for C++ implementers
+	//      (ADCEnemyBase implements this natively, returning its UPROPERTY).
+	//   2. UDCEnemyAIData component — fallback for BP-only implementers that
+	//      can't expose a BT UPROPERTY natively (B_DC_LyraEnemyBase parented
+	//      off ALyraCharacter). Python adds the component via SCS at BP
+	//      creation time and sets BehaviorTree on the component template.
+	if (!InPawn)
 	{
 		return;
 	}
 
-	UBehaviorTree* Tree = Enemy->BehaviorTree;
+	UBehaviorTree* Tree = nullptr;
+	if (InPawn->Implements<UDCEnemyAIPawn>())
+	{
+		Tree = IDCEnemyAIPawn::Execute_GetEnemyBehaviorTree(InPawn);
+	}
+	if (!Tree)
+	{
+		if (UDCEnemyAIData* Data = InPawn->FindComponentByClass<UDCEnemyAIData>())
+		{
+			Tree = Data->BehaviorTree;
+		}
+	}
+	if (!Tree)
+	{
+		return;
+	}
+
 	if (!Tree->BlackboardAsset)
 	{
 		// A BT without a blackboard asset can't run — fail loud but don't crash.
 		UE_LOG(LogTemp, Warning,
 			TEXT("[DC] %s has BehaviorTree %s with no BlackboardAsset — AI will not run."),
-			*GetNameSafe(Enemy), *GetNameSafe(Tree));
+			*GetNameSafe(InPawn), *GetNameSafe(Tree));
 		return;
 	}
 

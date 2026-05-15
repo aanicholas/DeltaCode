@@ -67,11 +67,16 @@ DC_CLASSES = {
 # overwrite the template's intended setup. Match is done via substring so
 # either the package path or `.ClassName_C` form hits.
 #
-# Empty for now — the previous BP_CombatEnemy entry was removed when we
-# swapped enemy_base / boss_base to B_DC_EnemyBase / B_DC_BossBase (which
-# need _apply_mesh_to_actor to give them the Lyra mannequin). Add entries
-# back when P3 introduces a pre-equipped LyraCharacter-parented enemy BP.
-_PRE_EQUIPPED_CLASS_PATHS = ()
+# Substring-match list. When a spawned actor's class path contains any of
+# these, _apply_mesh_to_actor leaves the actor alone so the BP's intentional
+# mesh / anim / AI setup isn't stomped by the generic Lyra-mannequin pass.
+#
+# B_DC_LyraEnemyBase is parented off ALyraCharacter and gets its mesh + anim
+# class wired at BP-creation time — re-applying mesh per-spawn would just
+# write the same values, but it would also reset CharacterMesh0's relative
+# location using the DCCharacterBase capsule offset, which is wrong for the
+# LyraCharacter capsule.
+_PRE_EQUIPPED_CLASS_PATHS = ("B_DC_LyraEnemyBase",)
 
 # Dedicated non-World-Partition level that Danger Zone operates on. WP levels
 # build actor descriptors at save time, which asserts in OnActorDescInstanceAdded
@@ -509,6 +514,39 @@ _MANNEQUIN_ANIM_CLASS_FALLBACKS = [
 _RESOLVED_MANNEQUIN_MESH = None
 _RESOLVED_MANNEQUIN_ANIM_CLASS = None
 
+# Lyra detection. None = not yet tried. False = absent. True = present.
+# Cached because every Build Mission asks the same question.
+_RESOLVED_LYRA_AVAILABLE = None
+_LYRA_CHARACTER_CLASS_PATH = "/Script/LyraGame.LyraCharacter"
+
+# Lyra-parented enemy BP we generate when Lyra is detected. Lives alongside
+# B_DC_EnemyBase so the same Build Mission flow can pick whichever the project
+# supports — see _apply_scan_to_dc_classes for the routing.
+_LYRA_ENEMY_BP_NAME = "B_DC_LyraEnemyBase"
+_LYRA_ENEMY_BP_PATH = f"/Game/DeltaCode/Core/{_LYRA_ENEMY_BP_NAME}"
+_LYRA_ENEMY_BP_CLASS_PATH = f"{_LYRA_ENEMY_BP_PATH}.{_LYRA_ENEMY_BP_NAME}_C"
+
+def _lyra_available():
+    """Return True iff ALyraCharacter is loadable in this project. Cached.
+
+    Used to gate B_DC_LyraEnemyBase creation (we don't author a Lyra-parented
+    BP in non-Lyra projects) and to route DC_CLASSES['enemy_base'] when the
+    BP is present.
+    """
+    global _RESOLVED_LYRA_AVAILABLE
+    if _RESOLVED_LYRA_AVAILABLE is not None:
+        return _RESOLVED_LYRA_AVAILABLE
+    cls = unreal.load_class(None, _LYRA_CHARACTER_CLASS_PATH)
+    _RESOLVED_LYRA_AVAILABLE = cls is not None
+    if _RESOLVED_LYRA_AVAILABLE:
+        unreal.log(
+            f"DeltaCode: Lyra detected — {_LYRA_CHARACTER_CLASS_PATH} loadable.")
+    else:
+        unreal.log(
+            f"DeltaCode: Lyra not detected — {_LYRA_CHARACTER_CLASS_PATH} "
+            f"unavailable. B_DC_LyraEnemyBase creation will be skipped.")
+    return _RESOLVED_LYRA_AVAILABLE
+
 
 def _resolve_mannequin_mesh():
     """Return the mannequin SkeletalMesh asset, trying the Lyra 5.7 path first
@@ -621,39 +659,64 @@ def _apply_scan_to_dc_classes(scan):
     can find BP_CombatEnemy and any Boss variant by name regardless of
     where they live in the project.
 
+    Routing priority (highest to lowest):
+      1. B_DC_LyraEnemyBase — present only in Lyra projects, gives us a
+         LyraCharacter-parented pawn that ABP_Mannequin_Base initialises
+         correctly (no sliding mannequin).
+      2. B_DC_EnemyBase — DeltaCode's portable fallback. Used in non-Lyra
+         projects and when Lyra is present but the Lyra BP failed to create.
+
     scan — dict from dc_inspect_project(silent=True). Empty dict on failure
     triggers the fallback path.
     """
     fallback_path = "/Game/DeltaCode/Core/B_DC_EnemyBase.B_DC_EnemyBase_C"
     enemy_rows = scan.get("enemy", [])
 
-    # Find BP_CombatEnemy by exact name match in the enemy/character rows.
-    combat = next(
-        (r for r in enemy_rows
-         if r.get("kind") in ("BP", "BP-AI") and r.get("name") == "BP_CombatEnemy"),
-        None)
-    if combat:
-        cls_path = f"{combat['path']}.{combat['name']}_C"
-        DC_CLASSES["enemy_base"] = cls_path
-        DC_CLASSES["boss_base"]  = cls_path
-        unreal.log(f"DeltaCode: enemy_base/boss_base → {cls_path}")
-    else:
-        DC_CLASSES["enemy_base"] = fallback_path
-        DC_CLASSES["boss_base"]  = fallback_path
-        unreal.log("DeltaCode: BP_CombatEnemy not found — falling back to "
-                   "B_DC_EnemyBase for enemy/boss.")
+    # Lyra-native enemy first. Both checks must pass: Lyra detected AND the
+    # generated BP actually exists on disk. If we lost the BP between runs
+    # (manual delete, branch switch), fall through to the legacy lookup.
+    routed = False
+    if (_lyra_available()
+            and unreal.EditorAssetLibrary.does_asset_exist(_LYRA_ENEMY_BP_PATH)):
+        DC_CLASSES["enemy_base"] = _LYRA_ENEMY_BP_CLASS_PATH
+        DC_CLASSES["boss_base"]  = _LYRA_ENEMY_BP_CLASS_PATH
+        unreal.log(
+            f"DeltaCode: enemy_base/boss_base → {_LYRA_ENEMY_BP_CLASS_PATH} "
+            f"(LyraCharacter-parented).")
+        routed = True
+
+    if not routed:
+        # Find BP_CombatEnemy by exact name match in the enemy/character rows.
+        combat = next(
+            (r for r in enemy_rows
+             if r.get("kind") in ("BP", "BP-AI") and r.get("name") == "BP_CombatEnemy"),
+            None)
+        if combat:
+            cls_path = f"{combat['path']}.{combat['name']}_C"
+            DC_CLASSES["enemy_base"] = cls_path
+            DC_CLASSES["boss_base"]  = cls_path
+            unreal.log(f"DeltaCode: enemy_base/boss_base → {cls_path}")
+        else:
+            DC_CLASSES["enemy_base"] = fallback_path
+            DC_CLASSES["boss_base"]  = fallback_path
+            unreal.log("DeltaCode: BP_CombatEnemy not found — falling back to "
+                       "B_DC_EnemyBase for enemy/boss.")
 
     # Override boss with a dedicated Boss variant if one exists. Spawner BPs
-    # are skipped (they'd place a spawner actor instead of a pawn).
-    for r in enemy_rows:
-        if r.get("kind") not in ("BP", "BP-AI"):
-            continue
-        name = r.get("name", "")
-        if "Boss" in name and "Spawner" not in name:
-            cls_path = f"{r['path']}.{name}_C"
-            DC_CLASSES["boss_base"] = cls_path
-            unreal.log(f"DeltaCode: boss_base overridden → {cls_path}")
-            break
+    # are skipped (they'd place a spawner actor instead of a pawn). Skipped
+    # entirely when we routed to B_DC_LyraEnemyBase — a project-shipped Boss
+    # BP would lack IDCEnemyAIPawn / DC components and silently fail to run
+    # the BT, which is a regression from the Lyra-parented routing.
+    if not routed:
+        for r in enemy_rows:
+            if r.get("kind") not in ("BP", "BP-AI"):
+                continue
+            name = r.get("name", "")
+            if "Boss" in name and "Spawner" not in name:
+                cls_path = f"{r['path']}.{name}_C"
+                DC_CLASSES["boss_base"] = cls_path
+                unreal.log(f"DeltaCode: boss_base overridden → {cls_path}")
+                break
 
     # Combat montage detection — log only for v1; no DC_CLASSES update yet.
     montages = [r for r in scan.get("animation", []) if r.get("kind") == "Montage"]
@@ -923,6 +986,179 @@ def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
     return blueprint
 
 
+def _add_dc_component(blueprint, bp_name, component_class, component_name):
+    """Attach a DeltaCode runtime component to a Blueprint via its SCS.
+
+    Used to give Lyra-parented enemies the same DCFaction / DCEquipment /
+    DCHealth components that ADCEnemyBase exposes by C++ inheritance —
+    DCEnemyAIController and DCBTTask_AttackTarget look these up via
+    FindComponentByClass, so as long as they're present the AI runs.
+
+    Tolerates pre-existing nodes (no duplicate is added) so the function
+    is safe to call on every Build Mission.
+    """
+    try:
+        scs = blueprint.get_editor_property('simple_construction_script')
+        if scs is None:
+            unreal.log_warning(
+                f"DeltaCode: [{bp_name}] SCS is None — cannot add "
+                f"{component_name}.")
+            return False
+
+        # Idempotency: skip if any existing SCS node already carries the same
+        # component class. all_nodes() returns both root and child nodes.
+        existing = scs.get_all_nodes() if hasattr(scs, 'get_all_nodes') else []
+        for node in existing:
+            tmpl = node.component_template
+            if tmpl is not None and tmpl.get_class() == component_class:
+                unreal.log(
+                    f"DeltaCode: [{bp_name}] {component_name} already present "
+                    f"— skipping.")
+                return True
+
+        node = scs.create_node(component_class)
+        if node is None:
+            unreal.log_warning(
+                f"DeltaCode: [{bp_name}] SCS.create_node returned None for "
+                f"{component_name}.")
+            return False
+        scs.add_node(node)
+        unreal.log(
+            f"DeltaCode: [{bp_name}] added {component_name} via SCS.")
+        return True
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: [{bp_name}] failed to add {component_name} — {e}")
+        return False
+
+
+def _create_lyra_enemy_blueprint(force_recreate=False):
+    """Create B_DC_LyraEnemyBase parented off ALyraCharacter.
+
+    Skipped if Lyra isn't installed in this project. Adds the DC component
+    set the AI subsystem expects (faction / equipment / health), wires the
+    Lyra mannequin mesh + AnimBP, sets the AI controller to
+    ADCEnemyAIController, and marks the BP as implementing IDCEnemyAIPawn so
+    DCEnemyAIController can read its BehaviorTree at possession time.
+
+    The 'BehaviorTree' BP variable that backs IDCEnemyAIPawn::
+    GetEnemyBehaviorTree is added by dc_create_ai_assets._wire_lyra_enemy_blueprint
+    on the wiring pass — keeping creation here and wiring there mirrors how
+    B_DC_EnemyBase is split across the two scripts.
+
+    Returns the Blueprint asset on success, None otherwise. Failure logs and
+    falls back — caller continues with B_DC_EnemyBase routing.
+    """
+    if not _lyra_available():
+        return None
+
+    if unreal.EditorAssetLibrary.does_asset_exist(_LYRA_ENEMY_BP_PATH):
+        if not force_recreate:
+            unreal.log(
+                f"DeltaCode: {_LYRA_ENEMY_BP_NAME} already exists, skipping.")
+            return unreal.load_asset(_LYRA_ENEMY_BP_PATH)
+        unreal.EditorAssetLibrary.delete_asset(_LYRA_ENEMY_BP_PATH)
+        unreal.log(f"DeltaCode: {_LYRA_ENEMY_BP_NAME} deleted for recreate.")
+
+    parent_class = unreal.load_class(None, _LYRA_CHARACTER_CLASS_PATH)
+    if parent_class is None:
+        unreal.log_warning(
+            f"DeltaCode: ALyraCharacter unavailable — cannot create "
+            f"{_LYRA_ENEMY_BP_NAME}. Falling back to B_DC_EnemyBase.")
+        return None
+
+    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+    factory = unreal.BlueprintFactory()
+    factory.set_editor_property("parent_class", parent_class)
+
+    blueprint = asset_tools.create_asset(
+        _LYRA_ENEMY_BP_NAME, _CORE_PACKAGE_PATH, unreal.Blueprint, factory)
+    if blueprint is None:
+        unreal.log_error(
+            f"DeltaCode: create_asset returned None for {_LYRA_ENEMY_BP_NAME}.")
+        return None
+
+    # DC components — DCEnemyAIController and DCBTTask_AttackTarget look these
+    # up via FindComponentByClass instead of casting to a concrete pawn class.
+    # DCEnemyAIData carries the BehaviorTree pointer; the controller falls
+    # back to FindComponentByClass<UDCEnemyAIData>() when IDCEnemyAIPawn
+    # returns null, which is how this BP-only implementer gets a tree at
+    # possession time. The BT pointer itself is set later by
+    # dc_create_ai_assets._wire_lyra_enemy_blueprint once the BT asset exists.
+    _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
+                      unreal.DCFactionComponent, "DCFactionComponent")
+    _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
+                      unreal.DCEquipmentComponent, "DCEquipmentComponent")
+    _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
+                      unreal.DCHealthComponent, "DCHealthComponent")
+    _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
+                      unreal.DCEnemyAIData, "DCEnemyAIData")
+
+    # Default AI controller — same controller B_DC_EnemyBase uses, now driven
+    # via IDCEnemyAIPawn.
+    try:
+        gen_class = blueprint.generated_class()
+        cdo = unreal.get_default_object(gen_class)
+        ai_controller_class = unreal.load_class(
+            None, "/Script/DeltaCode.DCEnemyAIController")
+        if ai_controller_class is not None:
+            cdo.set_editor_property('ai_controller_class', ai_controller_class)
+            cdo.set_editor_property(
+                'auto_possess_ai',
+                unreal.AutoPossessAI.PLACED_IN_WORLD_OR_SPAWNED)
+            unreal.log(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] AIControllerClass set "
+                f"→ DCEnemyAIController.")
+        else:
+            unreal.log_warning(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] DCEnemyAIController "
+                f"unavailable — pawn will spawn unpossessed.")
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] AIController wiring "
+            f"failed — {e}")
+
+    # Lyra mannequin mesh + AnimBP on the inherited CharacterMesh0. ALyraCharacter
+    # ships without a mesh assigned by default (it normally comes from PawnData
+    # via the Experience system). Outside an Experience, set them ourselves so
+    # the pawn isn't invisible.
+    try:
+        gen_class = blueprint.generated_class()
+        cdo = unreal.get_default_object(gen_class)
+        all_mesh = cdo.get_components_by_class(unreal.SkeletalMeshComponent)
+        mesh_comp = next(
+            (c for c in all_mesh if c.get_name() == "CharacterMesh0"),
+            all_mesh[0] if all_mesh else None)
+        if mesh_comp is not None:
+            skel = _resolve_mannequin_mesh()
+            if skel is not None:
+                mesh_comp.set_editor_property("skeletal_mesh_asset", skel)
+            anim_class = _resolve_mannequin_anim_class()
+            if anim_class is not None:
+                mesh_comp.set_editor_property(
+                    "animation_mode",
+                    unreal.AnimationMode.ANIMATION_BLUEPRINT)
+                mesh_comp.set_editor_property("anim_class", anim_class)
+            unreal.log(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh + anim class set on "
+                f"CharacterMesh0.")
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh/anim wiring failed "
+            f"— {e}")
+
+    try:
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: compile_blueprint failed on "
+            f"{_LYRA_ENEMY_BP_NAME} — {e}")
+
+    unreal.EditorAssetLibrary.save_asset(_LYRA_ENEMY_BP_PATH)
+    unreal.log(f"DeltaCode: Created {_LYRA_ENEMY_BP_NAME}.")
+    return blueprint
+
+
 def create_core_blueprints(force_recreate=False):
     """Create all required DeltaCode Blueprint assets under /Game/DeltaCode/Core/.
 
@@ -941,6 +1177,15 @@ def create_core_blueprints(force_recreate=False):
             force_recreate=force_recreate)
         if result is not None:
             created += 1
+
+    # Lyra-parented enemy. Best-effort: failure is logged inside and we fall
+    # back to B_DC_EnemyBase via _apply_scan_to_dc_classes.
+    try:
+        _create_lyra_enemy_blueprint(force_recreate=force_recreate)
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: B_DC_LyraEnemyBase creation raised — {e}. "
+            f"Falling back to B_DC_EnemyBase.")
 
     unreal.log(f"DeltaCode: core blueprint check complete — {created}/{len(_CORE_BLUEPRINTS)} assets ready.")
 
