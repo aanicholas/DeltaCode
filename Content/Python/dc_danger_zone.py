@@ -729,34 +729,35 @@ def _apply_mesh_to_actor(actor, class_path):
         # on the capsule bottom rather than floating at its centre.
         mesh_comp.set_editor_property(
             "relative_location", unreal.Vector(0, 0, -_CHARACTER_Z_OFFSET))
-        # Mannequin locomotion AnimBP. ABP_Manny_Combat (used pre-5.7) was
-        # removed in the Lyra 5.7 reorganisation, so we route through the
-        # resolver which tries the 5.7 ABP_Mannequin_Base first and falls
-        # back to legacy paths for non-Lyra projects.
+        # Mannequin locomotion AnimBP. Route through the resolver which
+        # tries the Lyra 5.7 ABP_Mannequin_Base first and falls back to
+        # legacy paths for non-Lyra projects.
         anim_class = _resolve_mannequin_anim_class()
         if anim_class is not None:
-            # set_editor_property("anim_class", ...) updates the UPROPERTY so the
-            # Details panel reads correctly, but does NOT call InitAnim — and the
-            # default animation_mode on a placed SkeletalMeshComponent is Custom,
-            # so PIE would start with a null AnimInstance and no animation plays.
-            # Force the mode to AnimationBlueprint, then call set_anim_instance_class
-            # to actually instantiate the AnimInstance for runtime.
+            # Set the two UPROPERTYs that drive runtime anim instance
+            # creation. animation_mode must be AnimationBlueprint (default
+            # is Custom, which yields a null AnimInstance). anim_class
+            # names the AnimBP generated UClass. Both persist into the
+            # saved level as instance overrides on CharacterMesh0.
+            #
+            # We deliberately do NOT call set_anim_instance_class here.
+            # That method invokes InitAnim against the editor-world pawn
+            # and creates a transient UAnimInstance subobject that gets
+            # serialised into the saved level. At PIE start the duplicated
+            # subobject shadows PIE's own InitAnim pass — PIE sees
+            # AnimInstance != nullptr and skips construction — and the
+            # shadowed instance's references still point at editor-world
+            # components that never get remapped to PIE. Result: the
+            # AnimGraph never ticks against the live CharacterMovement,
+            # the character slides without locomotion. Letting PIE create
+            # a fresh anim instance from anim_class at BeginPlay is the
+            # correct path.
             mesh_comp.set_editor_property(
                 "animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT)
             mesh_comp.set_editor_property("anim_class", anim_class)
-            try:
-                mesh_comp.set_anim_instance_class(anim_class)
-            except Exception:
-                # Older binding name on some UE versions.
-                try:
-                    mesh_comp.set_anim_class(anim_class)
-                except Exception as e:
-                    unreal.log_warning(
-                        f"DeltaCode: anim instance reinit failed on "
-                        f"{actor.get_name()} — {e}")
         else:
             unreal.log_warning(
-                f"DeltaCode: failed to load ABP_Manny_Combat for "
+                f"DeltaCode: failed to resolve mannequin AnimBP for "
                 f"{actor.get_name()}")
 
         # AI wiring — ensure the pawn has an AIController and that the mesh
