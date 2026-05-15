@@ -31,17 +31,6 @@ UBTTask_DCMoveBase::UBTTask_DCMoveBase()
 EBTNodeResult::Type UBTTask_DCMoveBase::ExecuteTask(UBehaviorTreeComponent& OwnerComp,
                                                     uint8* /*NodeMemory*/)
 {
-	// TEMP DIAGNOSTIC (remove once movement is verified): logs the concrete
-	// derived class name on every MoveBase-rooted task entry so we can see
-	// which BT branch (Wander / MoveToTarget / Investigate) is firing. Tag
-	// [DC-BT] for easy log filtering.
-	UE_LOG(LogTemp, Display,
-		TEXT("[DC-BT] ExecuteTask: %s on %s"),
-		*GetClass()->GetName(),
-		OwnerComp.GetAIOwner() && OwnerComp.GetAIOwner()->GetPawn()
-			? *OwnerComp.GetAIOwner()->GetPawn()->GetName()
-			: TEXT("<no pawn>"));
-
 	AAIController* AI = OwnerComp.GetAIOwner();
 	if (!AI)
 	{

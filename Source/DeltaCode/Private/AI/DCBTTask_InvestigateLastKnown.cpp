@@ -31,13 +31,6 @@ UBTTask_DCInvestigateLastKnown::UBTTask_DCInvestigateLastKnown()
 EBTNodeResult::Type UBTTask_DCInvestigateLastKnown::ExecuteTask(
 	UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
-	// TEMP DIAGNOSTIC (remove once movement is verified).
-	UE_LOG(LogTemp, Display,
-		TEXT("[DC-BT] Investigate::ExecuteTask enter on %s"),
-		OwnerComp.GetAIOwner() && OwnerComp.GetAIOwner()->GetPawn()
-			? *OwnerComp.GetAIOwner()->GetPawn()->GetName()
-			: TEXT("<no pawn>"));
-
 	if (UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent())
 	{
 		BB->SetValueAsBool(DCAIBlackboardKeys::bIsInvestigating, true);
