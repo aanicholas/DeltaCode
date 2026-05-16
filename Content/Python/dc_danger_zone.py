@@ -929,12 +929,18 @@ def _find_subobject_template(handles, sub, component_class):
     """Walk handles, return the first component template that is an instance
     of component_class (or a subclass). Used for idempotency and for the
     wiring step that needs to set a UPROPERTY on the template.
+
+    UE5.7 API note: FSubobjectData is a USTRUCT — its accessors don't bind
+    to the struct in Python. They live as static functions on
+    USubobjectDataBlueprintFunctionLibrary. GetObject was deprecated in 5.7
+    in favour of GetAssociatedObject.
     """
+    lib = unreal.SubobjectDataBlueprintFunctionLibrary
     for h in handles:
         data = sub.k2_find_subobject_data_from_handle(h)
         if data is None:
             continue
-        obj = data.get_object()
+        obj = lib.get_associated_object(data)
         if obj is not None and isinstance(obj, component_class):
             return obj
     return None

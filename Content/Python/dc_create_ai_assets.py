@@ -289,11 +289,15 @@ def _wire_lyra_enemy_blueprint(bt_asset):
 
         handles = sub.k2_gather_subobject_data_for_blueprint(bp)
         target_template = None
+        # UE5.7: FSubobjectData accessors live on the BP function library
+        # (the struct itself doesn't surface methods to Python).
+        # GetObject is deprecated → use GetAssociatedObject.
+        lib = unreal.SubobjectDataBlueprintFunctionLibrary
         for h in handles:
             data = sub.k2_find_subobject_data_from_handle(h)
             if data is None:
                 continue
-            obj = data.get_object()
+            obj = lib.get_associated_object(data)
             if obj is not None and isinstance(obj, unreal.DCEnemyAIData):
                 target_template = obj
                 break
