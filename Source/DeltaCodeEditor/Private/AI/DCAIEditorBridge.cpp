@@ -18,9 +18,19 @@
 
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BlackboardData.h"
+#include "BehaviorTreeGraph.h"
+#include "Components/ActorComponent.h"
 #include "Editor.h"
 #include "EditorBuildUtils.h"
+#include "Engine/Blueprint.h"
+#include "Engine/SCS_Node.h"
+#include "Engine/SimpleConstructionScript.h"
 #include "Engine/World.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "SubobjectData.h"
+#include "SubobjectDataHandle.h"
+#include "SubobjectDataSubsystem.h"
 #include "Subsystems/EditorAssetSubsystem.h"
 #include "UObject/UnrealType.h"
 
@@ -49,11 +59,11 @@ bool UDCAIEditorBridge::SetBehaviorTreeBlackboard(
 		return false;
 	}
 
-	// Step 2 — find the protected BlackboardAsset UPROPERTY by name. The
-	// reflection layer ignores C++ access modifiers — access enforcement
-	// happens only at the language level when generated headers expand, so
-	// FindPropertyByName + FObjectProperty::SetObjectPropertyValue_InContainer
-	// is unaffected by the property being declared `protected`.
+	// Step 2 — find the BlackboardAsset UPROPERTY by name. The property lacks
+	// EditAnywhere/BlueprintReadWrite specifiers (which is why Python's
+	// set_editor_property refuses to write it), but FObjectProperty::
+	// SetObjectPropertyValue_InContainer operates at the data layer and
+	// ignores those specifiers — same access path the BT editor uses.
 	FObjectProperty* Prop = CastField<FObjectProperty>(
 		UBehaviorTree::StaticClass()->FindPropertyByName(
 			TEXT("BlackboardAsset")));
@@ -75,7 +85,25 @@ bool UDCAIEditorBridge::SetBehaviorTreeBlackboard(
 	FPropertyChangedEvent ChangeEvent(Prop, EPropertyChangeType::ValueSet);
 	BT->PostEditChangeProperty(ChangeEvent);
 
-	// Step 4 — save. SaveLoadedAsset persists the live in-memory object
+	// Step 4 — propagate the BB change into the BT's editor graph. The graph
+	// caches BB references inside decorator nodes (UBTDecorator_BlackboardBase
+	// and subclasses), and on next load those cached references override
+	// BlackboardAsset — symptom of the BT_DC_Enemy_Template -> BB_Template
+	// stickiness we saw after duplication. UpdateBlackboardChange walks the
+	// graph and refreshes each decorator's BB pointer to match the new asset.
+	//
+	// BTGraph is WITH_EDITORONLY_DATA on the BT; we're in an editor module
+	// so it's always present. If the cast fails the graph wasn't created
+	// (BT authored programmatically with no editor graph) — that's fine,
+	// no decorators to update.
+#if WITH_EDITORONLY_DATA
+	if (UBehaviorTreeGraph* Graph = Cast<UBehaviorTreeGraph>(BT->BTGraph))
+	{
+		Graph->UpdateBlackboardChange();
+	}
+#endif
+
+	// Step 5 — save. SaveLoadedAsset persists the live in-memory object
 	// rather than re-reading from disk, so the property we just set is what
 	// gets serialised. Mirrors the fix we already shipped on the Python side
 	// (save_loaded_asset vs save_asset) for the same UE asset-save quirk.
@@ -91,6 +119,278 @@ bool UDCAIEditorBridge::SetBehaviorTreeBlackboard(
 	}
 
 	OutMessage = FString::Printf(TEXT("BT %s -> BB %s"), *BTPath, *BBPath);
+	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+	return true;
+}
+
+bool UDCAIEditorBridge::AddBlueprintComponent(
+	const FString& BlueprintPath,
+	const FString& ComponentClassPath,
+	FString& OutMessage)
+{
+	// Step 1 — load the Blueprint and the component UClass. LoadClass takes
+	// the /Script/Module.ClassName form (no _C suffix); the engine handles
+	// the native-class to UClass* resolution internally.
+	UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
+	if (!BP)
+	{
+		OutMessage = FString::Printf(TEXT("Blueprint load failed: %s"),
+		                             *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	UClass* ComponentClass = LoadClass<UActorComponent>(
+		nullptr, *ComponentClassPath);
+	if (!ComponentClass)
+	{
+		OutMessage = FString::Printf(
+			TEXT("Component class load failed: %s"), *ComponentClassPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 2 — get the subobject subsystem and gather existing subobjects.
+	// USubobjectDataSubsystem::Get() returns the engine subsystem singleton;
+	// it can only be null if the SubobjectDataInterface module isn't loaded,
+	// which would mean the editor itself is broken.
+	USubobjectDataSubsystem* Sub = USubobjectDataSubsystem::Get();
+	if (!Sub)
+	{
+		OutMessage = TEXT("USubobjectDataSubsystem::Get() returned null");
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	TArray<FSubobjectDataHandle> Handles;
+	Sub->K2_GatherSubobjectDataForBlueprint(BP, Handles);
+	if (Handles.Num() == 0)
+	{
+		OutMessage = FString::Printf(
+			TEXT("No subobject handles for %s — BP has no actor root?"),
+			*BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 3 — idempotency walk. Find any existing template of the same class
+	// so a repeated Build Mission run doesn't keep stacking duplicates. Direct
+	// FSubobjectData::GetObject() works here because we're in C++ — Python's
+	// wrapper for this struct returns empty tuples, which is the bug that
+	// motivated moving this entire flow into the bridge.
+	for (const FSubobjectDataHandle& H : Handles)
+	{
+		FSubobjectData Data;
+		if (!Sub->K2_FindSubobjectDataFromHandle(H, Data))
+		{
+			continue;
+		}
+		const UObject* Obj = Data.GetObject();
+		if (Obj && Obj->IsA(ComponentClass))
+		{
+			OutMessage = FString::Printf(
+				TEXT("%s already present on %s — skipping (idempotent)."),
+				*ComponentClass->GetName(), *BlueprintPath);
+			UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+			return true;
+		}
+	}
+
+	// Step 4 — add the component. Handle 0 is conventionally the actor root,
+	// which is the only valid parent for non-SceneComponent ActorComponents
+	// (DCFaction/Health/Equipment/EnemyAIData are all USceneComponent-free).
+	FAddNewSubobjectParams Params;
+	Params.ParentHandle = Handles[0];
+	Params.NewClass = ComponentClass;
+	Params.BlueprintContext = BP;
+
+	FText FailReason;
+	FSubobjectDataHandle NewHandle = Sub->AddNewSubobject(Params, FailReason);
+	if (!NewHandle.IsValid())
+	{
+		OutMessage = FString::Printf(
+			TEXT("AddNewSubobject failed for %s on %s: %s"),
+			*ComponentClass->GetName(), *BlueprintPath,
+			*FailReason.ToString());
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 5 — verify by re-walking. The subsystem can return a valid handle
+	// on partial-success edge cases (e.g. a duplicate-name resolution that
+	// didn't actually attach), so the authoritative check is "is a template
+	// of this class actually present now?".
+	TArray<FSubobjectDataHandle> FreshHandles;
+	Sub->K2_GatherSubobjectDataForBlueprint(BP, FreshHandles);
+	bool bVerified = false;
+	for (const FSubobjectDataHandle& H : FreshHandles)
+	{
+		FSubobjectData Data;
+		if (!Sub->K2_FindSubobjectDataFromHandle(H, Data))
+		{
+			continue;
+		}
+		const UObject* Obj = Data.GetObject();
+		if (Obj && Obj->IsA(ComponentClass))
+		{
+			bVerified = true;
+			break;
+		}
+	}
+	if (!bVerified)
+	{
+		OutMessage = FString::Printf(
+			TEXT("AddNewSubobject returned valid handle but %s not found on "
+			     "rescan of %s — component missing at runtime."),
+			*ComponentClass->GetName(), *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 6 — compile the BP so its generated class picks up the new
+	// component template, then save. Compile-on-add mirrors what the
+	// Components panel does interactively, so the result is identical to a
+	// user-driven add.
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+
+	UEditorAssetSubsystem* AssetSub = GEditor
+		? GEditor->GetEditorSubsystem<UEditorAssetSubsystem>()
+		: nullptr;
+	if (!AssetSub || !AssetSub->SaveLoadedAsset(BP))
+	{
+		OutMessage = FString::Printf(
+			TEXT("%s added to %s but save failed."),
+			*ComponentClass->GetName(), *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Warning, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	OutMessage = FString::Printf(TEXT("Added %s to %s"),
+	                             *ComponentClass->GetName(), *BlueprintPath);
+	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+	return true;
+}
+
+bool UDCAIEditorBridge::SetBlueprintComponentObjectProperty(
+	const FString& BlueprintPath,
+	const FString& ComponentClassPath,
+	const FString& PropertyName,
+	const FString& ObjectPath,
+	FString& OutMessage)
+{
+	// Step 1 — load the BP, component class, and the value object. The value
+	// is intentionally typed UObject* so this can wire any object-typed
+	// UPROPERTY (BehaviorTree, BlackboardData, mesh, etc.); per-property type
+	// checks happen at the reflection layer in step 4.
+	UBlueprint* BP = LoadObject<UBlueprint>(nullptr, *BlueprintPath);
+	if (!BP)
+	{
+		OutMessage = FString::Printf(TEXT("Blueprint load failed: %s"),
+		                             *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+	UClass* CompClass = LoadClass<UActorComponent>(nullptr, *ComponentClassPath);
+	if (!CompClass)
+	{
+		OutMessage = FString::Printf(
+			TEXT("Component class load failed: %s"), *ComponentClassPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+	UObject* Value = LoadObject<UObject>(nullptr, *ObjectPath);
+	if (!Value)
+	{
+		OutMessage = FString::Printf(TEXT("Object load failed: %s"),
+		                             *ObjectPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 2 — find the component template via the BP's SimpleConstructionScript.
+	// This is the storage layer SubobjectDataSubsystem reads from; reaching it
+	// directly bypasses the FSubobjectData wrapper that Python can't unpack
+	// in UE5.7. USCS_Node::ComponentTemplate is a direct UActorComponent*
+	// reference — no struct decoding needed.
+	USimpleConstructionScript* SCS = BP->SimpleConstructionScript;
+	if (!SCS)
+	{
+		OutMessage = FString::Printf(
+			TEXT("%s has no SimpleConstructionScript — BP malformed?"),
+			*BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	UActorComponent* Template = nullptr;
+	for (USCS_Node* Node : SCS->GetAllNodes())
+	{
+		if (Node && Node->ComponentTemplate
+			&& Node->ComponentTemplate->IsA(CompClass))
+		{
+			Template = Node->ComponentTemplate;
+			break;
+		}
+	}
+	if (!Template)
+	{
+		OutMessage = FString::Printf(
+			TEXT("No %s component template found on %s — "
+			     "AddBlueprintComponent should run first."),
+			*CompClass->GetName(), *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 3 — resolve the property on the component class. FindPropertyByName
+	// walks the class chain so a UPROPERTY declared on a base class is found
+	// too. We require the property to be an FObjectProperty so the value-type
+	// check is enforced at the reflection layer (writing a UBlueprint* into a
+	// TObjectPtr<UBehaviorTree> would fail here, not at runtime).
+	FObjectProperty* Prop = CastField<FObjectProperty>(
+		CompClass->FindPropertyByName(*PropertyName));
+	if (!Prop)
+	{
+		OutMessage = FString::Printf(
+			TEXT("Property %s not found on %s as an object property — "
+			     "renamed or wrong type?"),
+			*PropertyName, *CompClass->GetName());
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 4 — write. Both the template and the BP need Modify() so the
+	// transaction system sees both as changed; PostEditChangeProperty on the
+	// template fires any per-property hooks (none on our DC components today,
+	// but cheap insurance for the future).
+	Template->Modify();
+	BP->Modify();
+	Prop->SetObjectPropertyValue_InContainer(Template, Value);
+	FPropertyChangedEvent ChangeEvent(Prop, EPropertyChangeType::ValueSet);
+	Template->PostEditChangeProperty(ChangeEvent);
+
+	// Step 5 — compile + save. The compile is what propagates the template
+	// property change into the generated class's CDO, so runtime FindComponent
+	// queries see the new value.
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+
+	UEditorAssetSubsystem* AssetSub = GEditor
+		? GEditor->GetEditorSubsystem<UEditorAssetSubsystem>()
+		: nullptr;
+	if (!AssetSub || !AssetSub->SaveLoadedAsset(BP))
+	{
+		OutMessage = FString::Printf(
+			TEXT("%s.%s set on %s but save failed."),
+			*CompClass->GetName(), *PropertyName, *BlueprintPath);
+		UE_LOG(LogDCAIEditorBridge, Warning, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	OutMessage = FString::Printf(TEXT("%s.%s -> %s on %s"),
+	                             *CompClass->GetName(), *PropertyName,
+	                             *ObjectPath, *BlueprintPath);
 	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
 	return true;
 }

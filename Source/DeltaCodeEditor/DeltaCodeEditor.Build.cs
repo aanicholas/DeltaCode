@@ -34,6 +34,9 @@ public class DeltaCodeEditor : ModuleRules
             "Projects",
             "SourceControl",
             "AIModule",
+            "AIGraph",
+            "BehaviorTreeEditor",
+            "SubobjectDataInterface",
         });
     }
 }

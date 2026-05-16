@@ -275,74 +275,43 @@ def _wire_lyra_enemy_blueprint(bt_asset):
         _err(f"load_asset returned None for {_LYRA_BP_PATH}")
         return
 
+    # Route through DCAIEditorBridge. The "find template + set property +
+    # compile + save" sequence has been moved into C++ because the
+    # FSubobjectData wrapper Python sees in UE5.7 returns empty to_tuple()
+    # and doesn't expose the BPFunctionLibrary accessors — so the template
+    # lookup can't be done from Python. The bridge walks
+    # UBlueprint::SimpleConstructionScript->GetAllNodes() instead, which is
+    # the same data with a usable C++ shape.
+    bt_path = unreal.SystemLibrary.get_path_name(bt_asset)
+    class_path = "/Script/DeltaCode.DCEnemyAIData"
+
     try:
-        # Locate the DCEnemyAIData component template via SubobjectDataSubsystem.
-        # The legacy SimpleConstructionScript UPROPERTY isn't script-reflected on
-        # UBlueprint (no BlueprintReadWrite specifier), so get_editor_property
-        # for it always fails — the subsystem is the only path that works from
-        # Python in UE5+.
-        sub = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
-        if sub is None:
-            _err("SubobjectDataSubsystem unavailable — cannot wire "
-                 "DCEnemyAIData.")
-            return
-
-        handles = sub.k2_gather_subobject_data_for_blueprint(bp)
-        target_template = None
-        # UE5.7 SubobjectData unpacking: try canonical library accessor,
-        # fall through to deprecated GetObject, then to to_tuple()[0]
-        # (FSubobjectData's first UPROPERTY is WeakObjectPtr<UObject>).
-        # See dc_danger_zone._subobject_object for the rationale.
-        for h in handles:
-            data = sub.k2_find_subobject_data_from_handle(h)
-            if data is None:
-                continue
-            obj = None
-            try:
-                obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)
-            except Exception:
-                pass
-            if obj is None:
-                try:
-                    obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data)
-                except Exception:
-                    pass
-            if obj is None:
-                try:
-                    tup = data.to_tuple()
-                    if tup and len(tup) > 0 and isinstance(tup[0], unreal.Object):
-                        obj = tup[0]
-                except Exception:
-                    pass
-            if obj is not None and isinstance(obj, unreal.DCEnemyAIData):
-                target_template = obj
-                break
-
-        if target_template is None:
-            _warn(f"{_LYRA_BP_PATH}: no DCEnemyAIData component found. The BP "
-                  f"may have been created before component-add was working — "
-                  f"delete {_LYRA_BP_PATH} and re-run Build Mission to "
-                  f"regenerate.")
-            return
-
-        current = target_template.get_editor_property('behavior_tree')
-        if current == bt_asset:
-            _log(f"{_LYRA_BP_PATH}.DCEnemyAIData.BehaviorTree already → "
-                 f"{_BT_NAME}, no-op.")
-            return
-
-        target_template.set_editor_property('behavior_tree', bt_asset)
-        _log(f"Set {_LYRA_BP_PATH}.DCEnemyAIData.BehaviorTree → {_BT_NAME}")
-
-        try:
-            unreal.BlueprintEditorLibrary.compile_blueprint(bp)
-        except Exception as e:
-            _warn(f"compile_blueprint failed on {_LYRA_BP_PATH} — {e}")
-
-        unreal.EditorAssetLibrary.save_asset(_LYRA_BP_PATH)
-        _log(f"Saved {_LYRA_BP_PATH}")
+        result = unreal.DCAIEditorBridge.set_blueprint_component_object_property(
+            _LYRA_BP_PATH, class_path, "BehaviorTree", bt_path)
+    except AttributeError:
+        _err("unreal.DCAIEditorBridge.set_blueprint_component_object_property "
+             "not registered — rebuild the plugin and restart the editor.")
+        return
     except Exception as e:
-        _err(f"Failed to wire BT into {_LYRA_BP_PATH} — {e}")
+        _err(f"DCAIEditorBridge.set_blueprint_component_object_property "
+             f"raised: {e}")
+        return
+
+    # Return shape mirrors _wire_blackboard: (bool, msg) tuple, with extra
+    # by-ref input echoes between them on some 5.7 builds — first/last
+    # unpack is the safe form.
+    if isinstance(result, tuple):
+        ok = bool(result[0])
+        msg = str(result[-1]) if len(result) > 1 else ""
+    else:
+        ok = bool(result)
+        msg = ""
+
+    if ok:
+        _log(f"{_LYRA_BP_PATH}.DCEnemyAIData.BehaviorTree wired via bridge: "
+             f"{msg}")
+    else:
+        _warn(f"Failed to wire BT into {_LYRA_BP_PATH} via bridge: {msg}")
 
 
 # ─── ENTRY POINT ─────────────────────────────────────────────────────────────

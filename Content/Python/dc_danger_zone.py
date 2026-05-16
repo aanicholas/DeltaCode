@@ -906,158 +906,60 @@ def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
     return blueprint
 
 
-def _gather_subobject_handles(blueprint):
-    """Return all subobject handles for a Blueprint via SubobjectDataSubsystem.
-
-    UE5+ canonical path for script-based BP component inspection / mutation.
-    The legacy SimpleConstructionScript UPROPERTY isn't script-reflected
-    (no BlueprintReadWrite specifier on UBlueprint::SimpleConstructionScript)
-    so get_editor_property('simple_construction_script') always fails — we
-    have to go through the subsystem.
-    """
-    sub = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
-    if sub is None:
-        unreal.log_warning(
-            "DeltaCode: SubobjectDataSubsystem unavailable — cannot edit "
-            "BP components.")
-        return None, []
-    handles = sub.k2_gather_subobject_data_for_blueprint(blueprint)
-    return sub, handles
-
-
-def _subobject_object(data):
-    """Extract the underlying UObject (typically a component template) from a
-    FSubobjectData struct in a UE-version-robust way.
-
-    UE5.7 API tour:
-    - FSubobjectData is a USTRUCT whose UPROPERTYs are all plain UPROPERTY()
-      (no BlueprintReadWrite specifier), so get_editor_property('weak_object_ptr')
-      and friends won't work.
-    - The canonical accessor is USubobjectDataBlueprintFunctionLibrary's
-      GetAssociatedObject (GetObject is deprecated in 5.7). But Python
-      reflection of those static UFUNCTIONs isn't guaranteed across every
-      build configuration.
-    - to_tuple() is a built-in on every UE Python struct wrapper and surfaces
-      all UPROPERTYs as a positional tuple regardless of access specifier.
-      FSubobjectData's first UPROPERTY is WeakObjectPtr<UObject> (the
-      component template), so tuple[0] is the UObject directly when the
-      library path is unavailable.
-
-    Try library → deprecated library → to_tuple. Returns None if every path
-    fails (which would mean a fundamental API shape change we'd need to
-    rediscover for that engine version).
-    """
-    try:
-        obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)
-        if obj is not None:
-            return obj
-    except Exception:
-        pass
-    try:
-        obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data)
-        if obj is not None:
-            return obj
-    except Exception:
-        pass
-    try:
-        tup = data.to_tuple()
-        if tup and len(tup) > 0:
-            cand = tup[0]
-            if isinstance(cand, unreal.Object):
-                return cand
-    except Exception:
-        pass
-    return None
-
-
-def _find_subobject_template(handles, sub, component_class):
-    """Walk handles, return the first component template that is an instance
-    of component_class (or a subclass). Used for idempotency and for the
-    wiring step that needs to set a UPROPERTY on the template.
-    """
-    for h in handles:
-        data = sub.k2_find_subobject_data_from_handle(h)
-        if data is None:
-            continue
-        obj = _subobject_object(data)
-        if obj is not None and isinstance(obj, component_class):
-            return obj
-    return None
-
-
 def _add_dc_component(blueprint, bp_name, component_class, component_name):
-    """Attach a DeltaCode runtime component to a Blueprint via the modern
-    SubobjectDataSubsystem (UE5+).
+    """Attach a DeltaCode runtime component to a Blueprint via DCAIEditorBridge.
 
     Used to give Lyra-parented enemies the same DCFaction / DCEquipment /
     DCHealth / DCEnemyAIData components that ADCEnemyBase exposes by C++
     inheritance — DCEnemyAIController and DCBTTask_AttackTarget look these up
     via FindComponentByClass, so as long as they're present the AI runs.
 
-    Idempotent: walks existing subobjects first and skips if a template of
-    the same class is already attached.
+    Why the C++ bridge: in UE5.7 Python, the SubobjectDataSubsystem path is
+    fundamentally blocked. FSubobjectData's to_tuple() returns an empty tuple
+    in this build, and the SubobjectDataBlueprintFunctionLibrary accessors
+    (get_associated_object / get_object) aren't reflected — so even when
+    add_new_subobject succeeds at the C++ layer, the Python verify step can
+    never confirm it. C++ reaches FSubobjectData::GetObject() directly, so
+    the whole add + verify cycle now lives in UDCAIEditorBridge.
+
+    Idempotent: the bridge walks existing subobjects first and short-circuits
+    if a template of the same class is already attached.
     """
-    sub, handles = _gather_subobject_handles(blueprint)
-    if sub is None or not handles:
-        unreal.log_warning(
-            f"DeltaCode: [{bp_name}] no subobject handles — cannot add "
-            f"{component_name}.")
-        return False
-
-    if _find_subobject_template(handles, sub, component_class) is not None:
-        unreal.log(
-            f"DeltaCode: [{bp_name}] {component_name} already present "
-            f"— skipping.")
-        return True
-
-    # handles[0] is conventionally the actor root — the only valid parent for
-    # SceneComponent-less ActorComponents like ours.
-    params = unreal.AddNewSubobjectParams()
-    params.parent_handle = handles[0]
-    params.new_class = component_class
-    params.blueprint_context = blueprint
+    bp_path = unreal.SystemLibrary.get_path_name(blueprint)
+    # SystemLibrary.get_path_name returns /Game/.../BP.BP — LoadObject in
+    # the bridge accepts either form, no normalisation needed.
+    class_path = unreal.SystemLibrary.get_path_name(component_class)
 
     try:
-        result = sub.add_new_subobject(params)
+        result = unreal.DCAIEditorBridge.add_blueprint_component(
+            bp_path, class_path)
+    except AttributeError:
+        unreal.log_error(
+            f"DeltaCode: [{bp_name}] unreal.DCAIEditorBridge.add_blueprint_component "
+            f"not registered — rebuild the plugin and restart the editor.")
+        return False
     except Exception as e:
         unreal.log_warning(
-            f"DeltaCode: [{bp_name}] add_new_subobject raised for "
-            f"{component_name} — {e}")
+            f"DeltaCode: [{bp_name}] DCAIEditorBridge.add_blueprint_component "
+            f"raised for {component_name} — {e}")
         return False
 
-    # add_new_subobject returns (FSubobjectDataHandle, FText fail_reason).
-    # Defensive unpacking — Python wrapping of UE tuple returns occasionally
-    # surfaces extra in/out items (we hit this with DCAIEditorBridge).
+    # Return shape: UE Python wraps UFUNCTIONs with output params as a tuple.
+    # First element is the bool return, last element is OutMessage. Mirror the
+    # defensive unpacking pattern from _wire_blackboard.
     if isinstance(result, tuple):
-        new_handle = result[0] if len(result) > 0 else None
-        fail_text = result[-1] if len(result) > 1 else None
+        ok = bool(result[0])
+        msg = str(result[-1]) if len(result) > 1 else ""
     else:
-        new_handle = result
-        fail_text = None
+        ok = bool(result)
+        msg = ""
 
-    fail_str = str(fail_text) if fail_text is not None else ""
-    if fail_str and fail_str != "":
+    if ok:
+        unreal.log(f"DeltaCode: [{bp_name}] {component_name} — {msg}")
+    else:
         unreal.log_warning(
-            f"DeltaCode: [{bp_name}] add_new_subobject reported failure for "
-            f"{component_name}: {fail_str}")
-        # A non-empty failure text doesn't necessarily mean nothing was
-        # added; verify by re-walking handles.
-
-    # Re-walk handles to confirm the component is now present. This is the
-    # authoritative success check — handle validity alone isn't, because the
-    # subsystem can return a placeholder handle on partial success.
-    _, fresh_handles = _gather_subobject_handles(blueprint)
-    if _find_subobject_template(fresh_handles, sub, component_class) is not None:
-        unreal.log(
-            f"DeltaCode: [{bp_name}] added {component_name} via "
-            f"SubobjectDataSubsystem.")
-        return True
-
-    unreal.log_warning(
-        f"DeltaCode: [{bp_name}] add_new_subobject for {component_name} "
-        f"completed but template not found on rescan — component may be "
-        f"missing at runtime.")
-    return False
+            f"DeltaCode: [{bp_name}] add {component_name} failed — {msg}")
+    return ok
 
 
 def _create_lyra_enemy_blueprint(force_recreate=False):
