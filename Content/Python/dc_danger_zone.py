@@ -778,10 +778,11 @@ def _apply_mesh_to_actor(actor, class_path):
     skel_mesh = _resolve_mannequin_mesh()
     if skel_mesh is None:
         return
-    # Prefer the inherited ACharacter mesh (CharacterMesh0). In a blank
-    # project that hasn't run _add_mannequin_mesh's SCS path, that's the
-    # only SkeletalMeshComponent present — a bare class-based lookup
-    # without the name match would miss it and leave the enemy mesh-less.
+    # Prefer the inherited ACharacter mesh (CharacterMesh0). On a vanilla
+    # ACharacter subclass that's the only SkeletalMeshComponent present —
+    # a bare class-based lookup without the name match would still hit it,
+    # but being explicit guards against future BPs that add additional
+    # skeletal meshes (weapons etc.) and we want CharacterMesh0 specifically.
     all_mesh_comps = actor.get_components_by_class(unreal.SkeletalMeshComponent)
     mesh_comp = next(
         (c for c in all_mesh_comps if c.get_name() == "CharacterMesh0"),
@@ -855,101 +856,21 @@ def _apply_mesh_to_actor(actor, class_path):
             f"DeltaCode: no SkeletalMeshComponent on {actor.get_name()}")
 
 
-def _resolve_asset_by_name(class_name, name_fragments, fallback_path):
-    """Find an asset object path via AssetRegistry name match.
-
-    Iterates all assets of `class_name` and returns the first whose asset name
-    contains any substring in `name_fragments`. Falls back to `fallback_path`
-    if the registry is unavailable or nothing matches. Every outcome is logged
-    so the Output Log shows which path actually got used.
-    """
-    try:
-        registry = unreal.AssetRegistryHelpers.get_asset_registry()
-        results = registry.get_assets_by_class(class_name)
-        for r in results:
-            name = str(r.asset_name)
-            if any(frag in name for frag in name_fragments):
-                resolved = str(r.object_path)
-                unreal.log(
-                    f"DeltaCode: registry resolved {class_name}:{name_fragments} "
-                    f"→ {resolved}")
-                return resolved
-    except Exception as e:
-        unreal.log_warning(
-            f"DeltaCode: registry lookup failed for "
-            f"{class_name}:{name_fragments} — {e}")
-    unreal.log(
-        f"DeltaCode: {class_name}:{name_fragments} not found in registry, "
-        f"using fallback {fallback_path}")
-    return fallback_path
-
-
-def _add_mannequin_mesh(blueprint, bp_name):
-    """Add a SkeletalMeshComponent with the mannequin mesh + anim blueprint.
-
-    Mesh and anim-blueprint paths are resolved via AssetRegistry so the script
-    survives Epic moving assets between engine versions / template refreshes.
-    Constants act as fallback if the registry lookup finds nothing.
-    """
-    try:
-        scs = blueprint.get_editor_property('simple_construction_script')
-        if scs is None:
-            unreal.log_warning(f"DeltaCode: [{bp_name}] SCS is None — cannot add mesh component.")
-            return
-
-        node = scs.create_node(unreal.SkeletalMeshComponent.static_class())
-        if node is None:
-            unreal.log_warning(f"DeltaCode: [{bp_name}] SCS.create_node returned None.")
-            return
-        unreal.log(f"DeltaCode: [{bp_name}] SCS node created.")
-
-        comp = node.component_template
-
-        # Skeletal mesh.
-        mesh_path = _resolve_asset_by_name(
-            "SkeletalMesh", ("Manny",), _MANNEQUIN_MESH)
-        skel_mesh = unreal.load_asset(mesh_path)
-        if skel_mesh is not None:
-            comp.set_editor_property("skeletal_mesh_asset", skel_mesh)
-            unreal.log(f"DeltaCode: [{bp_name}] Loaded mesh: {mesh_path}")
-        else:
-            unreal.log_warning(f"DeltaCode: [{bp_name}] FAILED to load mesh: {mesh_path}")
-
-        # Anim blueprint class. AssetRegistry returns the BP asset path; the
-        # SkeletalMeshComponent.anim_class property wants the generated UClass,
-        # which lives at the same path with a "_C" suffix.
-        anim_bp_path = _resolve_asset_by_name(
-            "AnimBlueprint", ("Manny", "ThirdPerson"), _MANNEQUIN_ANIM_CLASS)
-        if not anim_bp_path.endswith("_C"):
-            anim_bp_path = anim_bp_path + "_C"
-        anim_class = unreal.load_class(None, anim_bp_path)
-        if anim_class is not None:
-            comp.set_editor_property("anim_class", anim_class)
-            unreal.log(f"DeltaCode: [{bp_name}] anim_class set: {anim_bp_path}")
-        else:
-            unreal.log_warning(
-                f"DeltaCode: [{bp_name}] FAILED to load anim class: {anim_bp_path}")
-
-        scale = _CORE_SCALES.get(bp_name, 1.0)
-        if scale != 1.0:
-            comp.set_editor_property(
-                "relative_scale3d", unreal.Vector(scale, scale, scale))
-            unreal.log(f"DeltaCode: [{bp_name}] Scale set to {scale}.")
-
-        scs.add_node(node)
-        unreal.log(f"DeltaCode: [{bp_name}] SkeletalMeshComponent added to SCS.")
-    except Exception as e:
-        unreal.log_warning(
-            f"DeltaCode: Could not add mannequin mesh to "
-            f"{blueprint.get_name()} — {e}")
-
-
 def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
                                  force_recreate=False):
     """Create a Blueprint asset if it doesn't already exist.
 
     When force_recreate is True, deletes the existing asset first so it gets
-    rebuilt with the latest mesh/color/scale setup.
+    rebuilt with the latest configuration.
+
+    Mesh / anim wiring is intentionally NOT done here — _apply_mesh_to_actor
+    runs on every spawned instance and writes mesh + anim_class on the live
+    actor's CharacterMesh0 component. The previous SCS-based path attempted
+    to add a SkeletalMeshComponent at BP-creation time but silently failed
+    (UBlueprint::SimpleConstructionScript has no BlueprintReadWrite specifier
+    so get_editor_property can't reach it from Python). The per-spawn path
+    has been doing the real work all along; the CDO-time wiring would have
+    been redundant even if it worked.
     """
     full_path = f"{package_path}/{bp_name}"
 
@@ -978,7 +899,6 @@ def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
         factory)
 
     if blueprint:
-        _add_mannequin_mesh(blueprint, bp_name)
         unreal.EditorAssetLibrary.save_asset(full_path)
         unreal.log(f"DeltaCode: Created {bp_name}")
     else:
@@ -986,50 +906,113 @@ def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
     return blueprint
 
 
+def _gather_subobject_handles(blueprint):
+    """Return all subobject handles for a Blueprint via SubobjectDataSubsystem.
+
+    UE5+ canonical path for script-based BP component inspection / mutation.
+    The legacy SimpleConstructionScript UPROPERTY isn't script-reflected
+    (no BlueprintReadWrite specifier on UBlueprint::SimpleConstructionScript)
+    so get_editor_property('simple_construction_script') always fails — we
+    have to go through the subsystem.
+    """
+    sub = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+    if sub is None:
+        unreal.log_warning(
+            "DeltaCode: SubobjectDataSubsystem unavailable — cannot edit "
+            "BP components.")
+        return None, []
+    handles = sub.k2_gather_subobject_data_for_blueprint(blueprint)
+    return sub, handles
+
+
+def _find_subobject_template(handles, sub, component_class):
+    """Walk handles, return the first component template that is an instance
+    of component_class (or a subclass). Used for idempotency and for the
+    wiring step that needs to set a UPROPERTY on the template.
+    """
+    for h in handles:
+        data = sub.k2_find_subobject_data_from_handle(h)
+        if data is None:
+            continue
+        obj = data.get_object()
+        if obj is not None and isinstance(obj, component_class):
+            return obj
+    return None
+
+
 def _add_dc_component(blueprint, bp_name, component_class, component_name):
-    """Attach a DeltaCode runtime component to a Blueprint via its SCS.
+    """Attach a DeltaCode runtime component to a Blueprint via the modern
+    SubobjectDataSubsystem (UE5+).
 
     Used to give Lyra-parented enemies the same DCFaction / DCEquipment /
-    DCHealth components that ADCEnemyBase exposes by C++ inheritance —
-    DCEnemyAIController and DCBTTask_AttackTarget look these up via
-    FindComponentByClass, so as long as they're present the AI runs.
+    DCHealth / DCEnemyAIData components that ADCEnemyBase exposes by C++
+    inheritance — DCEnemyAIController and DCBTTask_AttackTarget look these up
+    via FindComponentByClass, so as long as they're present the AI runs.
 
-    Tolerates pre-existing nodes (no duplicate is added) so the function
-    is safe to call on every Build Mission.
+    Idempotent: walks existing subobjects first and skips if a template of
+    the same class is already attached.
     """
-    try:
-        scs = blueprint.get_editor_property('simple_construction_script')
-        if scs is None:
-            unreal.log_warning(
-                f"DeltaCode: [{bp_name}] SCS is None — cannot add "
-                f"{component_name}.")
-            return False
+    sub, handles = _gather_subobject_handles(blueprint)
+    if sub is None or not handles:
+        unreal.log_warning(
+            f"DeltaCode: [{bp_name}] no subobject handles — cannot add "
+            f"{component_name}.")
+        return False
 
-        # Idempotency: skip if any existing SCS node already carries the same
-        # component class. all_nodes() returns both root and child nodes.
-        existing = scs.get_all_nodes() if hasattr(scs, 'get_all_nodes') else []
-        for node in existing:
-            tmpl = node.component_template
-            if tmpl is not None and tmpl.get_class() == component_class:
-                unreal.log(
-                    f"DeltaCode: [{bp_name}] {component_name} already present "
-                    f"— skipping.")
-                return True
-
-        node = scs.create_node(component_class)
-        if node is None:
-            unreal.log_warning(
-                f"DeltaCode: [{bp_name}] SCS.create_node returned None for "
-                f"{component_name}.")
-            return False
-        scs.add_node(node)
+    if _find_subobject_template(handles, sub, component_class) is not None:
         unreal.log(
-            f"DeltaCode: [{bp_name}] added {component_name} via SCS.")
+            f"DeltaCode: [{bp_name}] {component_name} already present "
+            f"— skipping.")
         return True
+
+    # handles[0] is conventionally the actor root — the only valid parent for
+    # SceneComponent-less ActorComponents like ours.
+    params = unreal.AddNewSubobjectParams()
+    params.parent_handle = handles[0]
+    params.new_class = component_class
+    params.blueprint_context = blueprint
+
+    try:
+        result = sub.add_new_subobject(params)
     except Exception as e:
         unreal.log_warning(
-            f"DeltaCode: [{bp_name}] failed to add {component_name} — {e}")
+            f"DeltaCode: [{bp_name}] add_new_subobject raised for "
+            f"{component_name} — {e}")
         return False
+
+    # add_new_subobject returns (FSubobjectDataHandle, FText fail_reason).
+    # Defensive unpacking — Python wrapping of UE tuple returns occasionally
+    # surfaces extra in/out items (we hit this with DCAIEditorBridge).
+    if isinstance(result, tuple):
+        new_handle = result[0] if len(result) > 0 else None
+        fail_text = result[-1] if len(result) > 1 else None
+    else:
+        new_handle = result
+        fail_text = None
+
+    fail_str = str(fail_text) if fail_text is not None else ""
+    if fail_str and fail_str != "":
+        unreal.log_warning(
+            f"DeltaCode: [{bp_name}] add_new_subobject reported failure for "
+            f"{component_name}: {fail_str}")
+        # A non-empty failure text doesn't necessarily mean nothing was
+        # added; verify by re-walking handles.
+
+    # Re-walk handles to confirm the component is now present. This is the
+    # authoritative success check — handle validity alone isn't, because the
+    # subsystem can return a placeholder handle on partial success.
+    _, fresh_handles = _gather_subobject_handles(blueprint)
+    if _find_subobject_template(fresh_handles, sub, component_class) is not None:
+        unreal.log(
+            f"DeltaCode: [{bp_name}] added {component_name} via "
+            f"SubobjectDataSubsystem.")
+        return True
+
+    unreal.log_warning(
+        f"DeltaCode: [{bp_name}] add_new_subobject for {component_name} "
+        f"completed but template not found on rescan — component may be "
+        f"missing at runtime.")
+    return False
 
 
 def _create_lyra_enemy_blueprint(force_recreate=False):

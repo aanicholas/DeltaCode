@@ -154,12 +154,19 @@ void ADCEnemyAIController::HandlePerceptionUpdated(AActor* Actor, FAIStimulus St
 
 	AActor* Old = CurrentTarget.Get();
 
+	// Only mirror state into the blackboard when its asset has been set —
+	// UseBlackboard() in OnPossess might not have run (e.g. pawn doesn't
+	// implement IDCEnemyAIPawn and has no UDCEnemyAIData component), in which
+	// case SetValueAs*/ClearValue would key-lookup against a null asset and
+	// spam ensures from FBlackboard::FKey::operator==.
+	const bool bBBReady =
+		BlackboardComponent && BlackboardComponent->GetBlackboardAsset();
+
 	if (Stimulus.WasSuccessfullySensed())
 	{
 		CurrentTarget = Actor;
 
-		// Mirror state into the blackboard so BT selectors can react.
-		if (BlackboardComponent)
+		if (bBBReady)
 		{
 			BlackboardComponent->SetValueAsObject(DCAIBlackboardKeys::TargetActor, Actor);
 			BlackboardComponent->SetValueAsVector(
@@ -177,7 +184,7 @@ void ADCEnemyAIController::HandlePerceptionUpdated(AActor* Actor, FAIStimulus St
 		// so InvestigateLastKnown has somewhere to go; clear only TargetActor.
 		CurrentTarget.Reset();
 
-		if (BlackboardComponent)
+		if (bBBReady)
 		{
 			BlackboardComponent->ClearValue(DCAIBlackboardKeys::TargetActor);
 			BlackboardComponent->SetValueAsVector(

@@ -276,26 +276,33 @@ def _wire_lyra_enemy_blueprint(bt_asset):
         return
 
     try:
-        # Locate the DCEnemyAIData node on the BP's SCS so we can address its
-        # component template (where UPROPERTY defaults live for SCS-added
-        # components — the generated-class CDO doesn't surface them by name).
-        scs = bp.get_editor_property('simple_construction_script')
-        if scs is None:
-            _err(f"{_LYRA_BP_PATH} has no SCS — cannot wire DCEnemyAIData.")
+        # Locate the DCEnemyAIData component template via SubobjectDataSubsystem.
+        # The legacy SimpleConstructionScript UPROPERTY isn't script-reflected on
+        # UBlueprint (no BlueprintReadWrite specifier), so get_editor_property
+        # for it always fails — the subsystem is the only path that works from
+        # Python in UE5+.
+        sub = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+        if sub is None:
+            _err("SubobjectDataSubsystem unavailable — cannot wire "
+                 "DCEnemyAIData.")
             return
 
-        nodes = scs.get_all_nodes() if hasattr(scs, 'get_all_nodes') else []
+        handles = sub.k2_gather_subobject_data_for_blueprint(bp)
         target_template = None
-        for node in nodes:
-            tmpl = node.component_template
-            if tmpl is not None and isinstance(tmpl, unreal.DCEnemyAIData):
-                target_template = tmpl
+        for h in handles:
+            data = sub.k2_find_subobject_data_from_handle(h)
+            if data is None:
+                continue
+            obj = data.get_object()
+            if obj is not None and isinstance(obj, unreal.DCEnemyAIData):
+                target_template = obj
                 break
 
         if target_template is None:
-            _warn(f"{_LYRA_BP_PATH}: no DCEnemyAIData SCS node found. The BP "
-                  f"may have been created with an older script — delete "
-                  f"{_LYRA_BP_PATH} and re-run Build Mission to regenerate.")
+            _warn(f"{_LYRA_BP_PATH}: no DCEnemyAIData component found. The BP "
+                  f"may have been created before component-add was working — "
+                  f"delete {_LYRA_BP_PATH} and re-run Build Mission to "
+                  f"regenerate.")
             return
 
         current = target_template.get_editor_property('behavior_tree')
