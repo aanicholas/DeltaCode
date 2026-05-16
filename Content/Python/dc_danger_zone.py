@@ -930,19 +930,35 @@ def _find_subobject_template(handles, sub, component_class):
     of component_class (or a subclass). Used for idempotency and for the
     wiring step that needs to set a UPROPERTY on the template.
 
-    UE5.7 API note: FSubobjectData is a USTRUCT — its accessors don't bind
-    to the struct in Python. They live as static functions on
-    USubobjectDataBlueprintFunctionLibrary. GetObject was deprecated in 5.7
-    in favour of GetAssociatedObject.
+    UE5.7 API notes:
+    - FSubobjectData is a USTRUCT; its accessors live on
+      USubobjectDataBlueprintFunctionLibrary (not bound to the struct).
+    - K2_FindSubobjectDataFromHandle has signature
+      `bool(Handle, OutData)` — UE Python wraps it by returning the
+      SubobjectData out-param directly (the bool return is folded away).
+      For an invalid handle we get a default-constructed (invalid) struct,
+      not None — hence the explicit is_valid gate.
+    - GetObject is deprecated in 5.7 → use GetAssociatedObject.
     """
     lib = unreal.SubobjectDataBlueprintFunctionLibrary
+    found_any_valid = False
     for h in handles:
         data = sub.k2_find_subobject_data_from_handle(h)
-        if data is None:
+        if data is None or not lib.is_valid(data):
             continue
+        found_any_valid = True
         obj = lib.get_associated_object(data)
         if obj is not None and isinstance(obj, component_class):
             return obj
+    if not found_any_valid:
+        # All handles resolved to invalid data — useful signal that
+        # k2_find_subobject_data_from_handle isn't returning what we
+        # expect. Logged once so the Output Log surfaces the issue
+        # without a separate Python console session.
+        unreal.log_warning(
+            f"DeltaCode: SubobjectData lookup yielded no valid entries "
+            f"across {len(handles)} handle(s) — API shape may differ from "
+            f"expected (returning OutData directly, with discarded bool).")
     return None
 
 
