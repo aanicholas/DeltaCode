@@ -289,17 +289,31 @@ def _wire_lyra_enemy_blueprint(bt_asset):
 
         handles = sub.k2_gather_subobject_data_for_blueprint(bp)
         target_template = None
-        # UE5.7: FSubobjectData accessors live on the BP function library
-        # (the struct itself doesn't surface methods to Python).
-        # GetObject is deprecated → use GetAssociatedObject.
-        # is_valid gate handles default-constructed structs returned for
-        # invalid handles (which Python sees as a struct, not None).
-        lib = unreal.SubobjectDataBlueprintFunctionLibrary
+        # UE5.7 SubobjectData unpacking: try canonical library accessor,
+        # fall through to deprecated GetObject, then to to_tuple()[0]
+        # (FSubobjectData's first UPROPERTY is WeakObjectPtr<UObject>).
+        # See dc_danger_zone._subobject_object for the rationale.
         for h in handles:
             data = sub.k2_find_subobject_data_from_handle(h)
-            if data is None or not lib.is_valid(data):
+            if data is None:
                 continue
-            obj = lib.get_associated_object(data)
+            obj = None
+            try:
+                obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)
+            except Exception:
+                pass
+            if obj is None:
+                try:
+                    obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data)
+                except Exception:
+                    pass
+            if obj is None:
+                try:
+                    tup = data.to_tuple()
+                    if tup and len(tup) > 0 and isinstance(tup[0], unreal.Object):
+                        obj = tup[0]
+                except Exception:
+                    pass
             if obj is not None and isinstance(obj, unreal.DCEnemyAIData):
                 target_template = obj
                 break

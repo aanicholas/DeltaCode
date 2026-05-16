@@ -925,40 +925,63 @@ def _gather_subobject_handles(blueprint):
     return sub, handles
 
 
+def _subobject_object(data):
+    """Extract the underlying UObject (typically a component template) from a
+    FSubobjectData struct in a UE-version-robust way.
+
+    UE5.7 API tour:
+    - FSubobjectData is a USTRUCT whose UPROPERTYs are all plain UPROPERTY()
+      (no BlueprintReadWrite specifier), so get_editor_property('weak_object_ptr')
+      and friends won't work.
+    - The canonical accessor is USubobjectDataBlueprintFunctionLibrary's
+      GetAssociatedObject (GetObject is deprecated in 5.7). But Python
+      reflection of those static UFUNCTIONs isn't guaranteed across every
+      build configuration.
+    - to_tuple() is a built-in on every UE Python struct wrapper and surfaces
+      all UPROPERTYs as a positional tuple regardless of access specifier.
+      FSubobjectData's first UPROPERTY is WeakObjectPtr<UObject> (the
+      component template), so tuple[0] is the UObject directly when the
+      library path is unavailable.
+
+    Try library → deprecated library → to_tuple. Returns None if every path
+    fails (which would mean a fundamental API shape change we'd need to
+    rediscover for that engine version).
+    """
+    try:
+        obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_associated_object(data)
+        if obj is not None:
+            return obj
+    except Exception:
+        pass
+    try:
+        obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data)
+        if obj is not None:
+            return obj
+    except Exception:
+        pass
+    try:
+        tup = data.to_tuple()
+        if tup and len(tup) > 0:
+            cand = tup[0]
+            if isinstance(cand, unreal.Object):
+                return cand
+    except Exception:
+        pass
+    return None
+
+
 def _find_subobject_template(handles, sub, component_class):
     """Walk handles, return the first component template that is an instance
     of component_class (or a subclass). Used for idempotency and for the
     wiring step that needs to set a UPROPERTY on the template.
-
-    UE5.7 API notes:
-    - FSubobjectData is a USTRUCT; its accessors live on
-      USubobjectDataBlueprintFunctionLibrary (not bound to the struct).
-    - K2_FindSubobjectDataFromHandle has signature
-      `bool(Handle, OutData)` — UE Python wraps it by returning the
-      SubobjectData out-param directly (the bool return is folded away).
-      For an invalid handle we get a default-constructed (invalid) struct,
-      not None — hence the explicit is_valid gate.
-    - GetObject is deprecated in 5.7 → use GetAssociatedObject.
     """
-    lib = unreal.SubobjectDataBlueprintFunctionLibrary
-    found_any_valid = False
     for h in handles:
         data = sub.k2_find_subobject_data_from_handle(h)
-        if data is None or not lib.is_valid(data):
+        if data is None:
             continue
-        found_any_valid = True
-        obj = lib.get_associated_object(data)
+        obj = _subobject_object(data)
         if obj is not None and isinstance(obj, component_class):
             return obj
-    if not found_any_valid:
-        # All handles resolved to invalid data — useful signal that
-        # k2_find_subobject_data_from_handle isn't returning what we
-        # expect. Logged once so the Output Log surfaces the issue
-        # without a separate Python console session.
-        unreal.log_warning(
-            f"DeltaCode: SubobjectData lookup yielded no valid entries "
-            f"across {len(handles)} handle(s) — API shape may differ from "
-            f"expected (returning OutData directly, with discarded bool).")
     return None
 
 
