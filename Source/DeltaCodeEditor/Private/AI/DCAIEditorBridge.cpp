@@ -18,6 +18,8 @@
 
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BlackboardData.h"
+#include "BehaviorTree/Blackboard/BlackboardKeyType.h"
+#include "BehaviorTree/Blackboard/BlackboardKeyType_Object.h"
 #include "BehaviorTreeGraph.h"
 #include "Components/ActorComponent.h"
 #include "Editor.h"
@@ -391,6 +393,126 @@ bool UDCAIEditorBridge::SetBlueprintComponentObjectProperty(
 	OutMessage = FString::Printf(TEXT("%s.%s -> %s on %s"),
 	                             *CompClass->GetName(), *PropertyName,
 	                             *ObjectPath, *BlueprintPath);
+	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+	return true;
+}
+
+bool UDCAIEditorBridge::AddBlackboardKey(
+	const FString& BBPath,
+	const FString& KeyName,
+	const FString& KeyTypeClassPath,
+	const FString& BaseClassPath,
+	FString& OutMessage)
+{
+	// Step 1 — load BB and resolve the key type class. KeyType must be a
+	// UBlackboardKeyType subclass; LoadClass with that template enforces it,
+	// so a /Script/Engine.Actor path (for example) fails here instead of
+	// at runtime.
+	UBlackboardData* BB = LoadObject<UBlackboardData>(nullptr, *BBPath);
+	if (!BB)
+	{
+		OutMessage = FString::Printf(TEXT("BB load failed: %s"), *BBPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	UClass* KeyTypeClass = LoadClass<UBlackboardKeyType>(
+		nullptr, *KeyTypeClassPath);
+	if (!KeyTypeClass)
+	{
+		OutMessage = FString::Printf(
+			TEXT("KeyType load failed (not a UBlackboardKeyType subclass?): %s"),
+			*KeyTypeClassPath);
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 2 — idempotency. Same-name entry already present means this call
+	// is a no-op; we don't try to validate that the existing entry's KeyType
+	// matches, because callers re-run Build Mission expecting "do nothing if
+	// it's already there."
+	const FName KeyFName(*KeyName);
+	for (const FBlackboardEntry& Existing : BB->Keys)
+	{
+		if (Existing.EntryName == KeyFName)
+		{
+			OutMessage = FString::Printf(
+				TEXT("Key '%s' already on %s — skipping (idempotent)."),
+				*KeyName, *BBPath);
+			UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
+			return true;
+		}
+	}
+
+	// Step 3 — build the entry. KeyType is created with BB as Outer, matching
+	// UBlackboardData::UpdatePersistentKey<T>() — the Instanced specifier on
+	// FBlackboardEntry::KeyType requires the inner object's Outer chain to
+	// reach the asset, otherwise serialisation drops the pointer (this is
+	// what the Python set_editor_property('keys', ...) path was hitting).
+	FBlackboardEntry Entry;
+	Entry.EntryName = KeyFName;
+	Entry.KeyType = NewObject<UBlackboardKeyType>(BB, KeyTypeClass);
+	if (!Entry.KeyType)
+	{
+		OutMessage = FString::Printf(
+			TEXT("NewObject<UBlackboardKeyType>(%s) returned null"),
+			*KeyTypeClass->GetName());
+		UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	// Step 3a — optional BaseClass for Object keys. The cast is class-typed,
+	// so a BaseClassPath supplied with a non-Object key type is silently
+	// ignored — matches the previous Python contract where base_class was
+	// only meaningful for Object keys.
+	if (!BaseClassPath.IsEmpty())
+	{
+		if (UBlackboardKeyType_Object* ObjType =
+		    Cast<UBlackboardKeyType_Object>(Entry.KeyType))
+		{
+			UClass* BaseClass = LoadClass<UObject>(nullptr, *BaseClassPath);
+			if (!BaseClass)
+			{
+				OutMessage = FString::Printf(
+					TEXT("BaseClass load failed: %s"), *BaseClassPath);
+				UE_LOG(LogDCAIEditorBridge, Error, TEXT("%s"), *OutMessage);
+				return false;
+			}
+			ObjType->BaseClass = BaseClass;
+		}
+	}
+
+	// Step 4 — append + dirty + save. MarkPackageDirty mirrors what
+	// UpdatePersistentKey does; without it the editor doesn't know the BB
+	// needs saving and SaveLoadedAsset becomes a no-op.
+	BB->Modify();
+	BB->Keys.Add(Entry);
+	BB->MarkPackageDirty();
+
+	// PostEditChangeProperty triggers UpdateKeyIDs / FirstKeyID recomputation
+	// so runtime lookups by name resolve immediately, without needing to
+	// reload the asset.
+	if (FProperty* KeysProp = UBlackboardData::StaticClass()
+	    ->FindPropertyByName(TEXT("Keys")))
+	{
+		FPropertyChangedEvent ChangeEvent(KeysProp, EPropertyChangeType::ArrayAdd);
+		BB->PostEditChangeProperty(ChangeEvent);
+	}
+
+	UEditorAssetSubsystem* AssetSub = GEditor
+		? GEditor->GetEditorSubsystem<UEditorAssetSubsystem>()
+		: nullptr;
+	if (!AssetSub || !AssetSub->SaveLoadedAsset(BB))
+	{
+		OutMessage = FString::Printf(
+			TEXT("Key '%s' added to %s but save failed."),
+			*KeyName, *BBPath);
+		UE_LOG(LogDCAIEditorBridge, Warning, TEXT("%s"), *OutMessage);
+		return false;
+	}
+
+	OutMessage = FString::Printf(TEXT("Key '%s' (%s) added to %s"),
+	                             *KeyName, *KeyTypeClass->GetName(), *BBPath);
 	UE_LOG(LogDCAIEditorBridge, Log, TEXT("%s"), *OutMessage);
 	return true;
 }

@@ -1288,12 +1288,17 @@ def run_danger_zone(mission_template):
         unreal.log_warning(f"DeltaCode: project scan failed — {e}")
         scan = {}
 
-    _apply_scan_to_dc_classes(scan)
-    _resolve_character_z_offset()
-
     # force_recreate=False: BP recreation with mesh is no longer needed since
     # _apply_mesh_to_actor now sets the mesh on every spawned instance.
+    #
+    # create_core_blueprints MUST run before _apply_scan_to_dc_classes — the
+    # routing check looks for B_DC_LyraEnemyBase on disk, and on a first run
+    # (or after a manual delete) it gets created here. Routing it earlier
+    # silently falls through to B_DC_EnemyBase even on Lyra projects.
     create_core_blueprints(force_recreate=False)
+
+    _apply_scan_to_dc_classes(scan)
+    _resolve_character_z_offset()
 
     # AI asset bootstrap — creates BT_DC_Enemy + BB_DC_Enemy_Default under
     # /Game/DeltaCode/AI/ and wires the BT into B_DC_EnemyBase so possession

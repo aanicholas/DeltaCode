@@ -141,6 +141,36 @@ public:
 		FString& OutMessage);
 
 	/**
+	 * Add a key entry to a UBlackboardData asset, mirroring what
+	 * UBlackboardData::UpdatePersistentKey<T>() does in C++. Python's
+	 * set_editor_property on the Keys TArray works for the FName but doesn't
+	 * persist the Instanced UBlackboardKeyType pointer in this UE5.7 build —
+	 * Keys land in the asset with KeyType=null, and BTTasks looking up the
+	 * key by name fail at runtime with "Failed to find key '<name>'".
+	 *
+	 * Idempotent: a key with the same name as an existing entry is a no-op.
+	 *
+	 * KeyTypeClassPath: /Script/AIModule.BlackboardKeyType_Object (or _Vector,
+	 *   _Bool, _Float, _Int, _Name, _String, _Rotator, _Enum, _Class, _Struct).
+	 * BaseClassPath: only meaningful for KeyType_Object — restricts the key
+	 *   to instances of that class (e.g. "/Script/Engine.Actor"). Empty for
+	 *   non-Object key types.
+	 *
+	 * Python call shape:
+	 *   ok, msg = unreal.DCAIEditorBridge.add_blackboard_key(
+	 *       "/Game/DeltaCode/AI/BB_DC_Enemy_Default",
+	 *       "TargetActor",
+	 *       "/Script/AIModule.BlackboardKeyType_Object",
+	 *       "/Script/Engine.Actor")
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DeltaCode|AI")
+	static bool AddBlackboardKey(const FString& BBPath,
+	                             const FString& KeyName,
+	                             const FString& KeyTypeClassPath,
+	                             const FString& BaseClassPath,
+	                             FString& OutMessage);
+
+	/**
 	 * Synchronously rebuild the editor world's navigation mesh via
 	 * FEditorBuildUtils::EditorBuild(BuildAIPaths) — the same code path the
 	 * "Build > Build Paths" menu uses. Blocks until tiles are queryable, so

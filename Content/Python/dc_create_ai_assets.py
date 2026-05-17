@@ -53,58 +53,67 @@ def _err(msg):  unreal.log_error(f"DeltaCode[AI]: {msg}")
 
 # ─── BLACKBOARD ──────────────────────────────────────────────────────────────
 
-def _make_bb_entry(owner_asset, entry_name, key_type_class, base_class=None):
-    """Construct an FBlackboardEntry with a freshly instanced key-type subobject.
-
-    The key-type subobject is outered to the BlackboardData asset so it
-    serialises alongside the asset and survives reloads.
-    """
-    entry = unreal.BlackboardEntry()
-    entry.set_editor_property("entry_name", entry_name)
-    kt = unreal.new_object(key_type_class, owner_asset)
-    if base_class is not None:
-        kt.set_editor_property("base_class", base_class)
-    entry.set_editor_property("key_type", kt)
-    return entry
-
-
 def _create_blackboard():
-    """Create BB_DC_Enemy_Default with the 4 keys DCEnemyAIController expects."""
+    """Create BB_DC_Enemy_Default with the 4 keys DCEnemyAIController expects.
+
+    Keys are added via DCAIEditorBridge — Python's set_editor_property on the
+    Keys TArray (FBlackboardEntry, with an Instanced UBlackboardKeyType inner
+    pointer) persists the FName but drops the KeyType on save in UE5.7,
+    leaving the asset with named entries that have no key type. BTTasks then
+    fail at runtime with "Failed to find key '<name>'" because the lookup
+    walks Keys ignoring entries whose KeyType is null.
+
+    Bridge calls are idempotent per name, so this self-heals existing BBs
+    that lost their keys to the previous bug.
+    """
     if unreal.EditorAssetLibrary.does_asset_exist(_BB_FULL_PATH):
-        _log(f"Blackboard already exists: {_BB_FULL_PATH}")
-        return unreal.load_asset(_BB_FULL_PATH)
+        bb = unreal.load_asset(_BB_FULL_PATH)
+        _log(f"Blackboard exists: {_BB_FULL_PATH} — verifying keys.")
+    else:
+        _log(f"Creating blackboard {_BB_FULL_PATH} ...")
+        asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+        bb = asset_tools.create_asset(
+            _BB_NAME, _AI_PACKAGE_PATH, unreal.BlackboardData, None)
+        if bb is None:
+            _err(f"asset_tools.create_asset returned None for {_BB_NAME}")
+            return None
 
-    _log(f"Creating blackboard {_BB_FULL_PATH} ...")
-    asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
-    bb = asset_tools.create_asset(
-        _BB_NAME, _AI_PACKAGE_PATH, unreal.BlackboardData, None)
-    if bb is None:
-        _err(f"asset_tools.create_asset returned None for {_BB_NAME}")
-        return None
+    # (KeyName, KeyTypeClassPath, BaseClassPath). BaseClass is only used by
+    # Object keys to restrict the value's class — empty string for everything
+    # else.
+    keys = [
+        ("TargetActor",
+            "/Script/AIModule.BlackboardKeyType_Object", "/Script/Engine.Actor"),
+        ("LastKnownLocation",
+            "/Script/AIModule.BlackboardKeyType_Vector", ""),
+        ("HomeLocation",
+            "/Script/AIModule.BlackboardKeyType_Vector", ""),
+        ("bIsInvestigating",
+            "/Script/AIModule.BlackboardKeyType_Bool",   ""),
+    ]
+    for name, type_path, base_path in keys:
+        try:
+            result = unreal.DCAIEditorBridge.add_blackboard_key(
+                _BB_FULL_PATH, name, type_path, base_path)
+        except AttributeError:
+            _err("unreal.DCAIEditorBridge.add_blackboard_key not registered — "
+                 "rebuild the plugin and restart the editor.")
+            return bb
+        except Exception as e:
+            _warn(f"BB add key '{name}' raised: {e}")
+            continue
 
-    try:
-        entries = [
-            _make_bb_entry(bb, "TargetActor",
-                           unreal.BlackboardKeyType_Object, unreal.Actor),
-            _make_bb_entry(bb, "LastKnownLocation",
-                           unreal.BlackboardKeyType_Vector),
-            _make_bb_entry(bb, "HomeLocation",
-                           unreal.BlackboardKeyType_Vector),
-            _make_bb_entry(bb, "bIsInvestigating",
-                           unreal.BlackboardKeyType_Bool),
-        ]
-        bb.set_editor_property("keys", entries)
-        _log("Keys set: TargetActor (Object:Actor), LastKnownLocation (Vector), "
-             "HomeLocation (Vector), bIsInvestigating (Bool)")
-    except Exception as e:
-        _warn(f"Failed to populate blackboard keys — {e}. "
-              f"Open {_BB_NAME} and add keys manually.")
+        if isinstance(result, tuple):
+            ok = bool(result[0])
+            msg = str(result[-1]) if len(result) > 1 else ""
+        else:
+            ok = bool(result)
+            msg = ""
+        if ok:
+            _log(f"BB key — {msg}")
+        else:
+            _warn(f"BB add key '{name}' failed: {msg}")
 
-    # save_loaded_asset persists the live in-memory object — save_asset(path)
-    # is load-then-save and discards the keys we just set in memory, which is
-    # why BB_DC_Enemy_Default previously shipped with only SelfActor.
-    unreal.EditorAssetLibrary.save_loaded_asset(bb)
-    _log(f"Saved {_BB_FULL_PATH}")
     return bb
 
 
