@@ -161,25 +161,21 @@ def _create_behavior_tree(bb_asset):
     nodes from the editor graph on save, wiping any new_object()-created
     RootNode/children set via set_editor_property. Duplication preserves the
     editor graph (Selector root + WanderFromHome task) baked into the template,
-    and set_editor_property('blackboard_asset', ...) survives the compile step
-    because it's a simple UPROPERTY on the BT asset.
+    and the bridge handles the BB property write (which isn't EditAnywhere and
+    so can't be set from Python).
+
+    Recreate-from-template on every run: BT_DC_Enemy is treated as fully
+    generated, not user-editable. An in-place rewire of an existing BT leaves
+    the editor graph's cached BB references stale (even with
+    UpdateBlackboardChange) — symptom: BT_DC_Enemy keeps pointing at
+    BB_DC_Enemy_Template after the rewire reports success. Delete-and-
+    duplicate gives a known-good starting state on every Build Mission run.
+    Users who need to customise the tree should fork the template, not edit
+    the generated asset.
     """
-    # Self-heal path: a prior run may have produced a BT with the BB
-    # reference dropped (UE's duplicate_asset can null external refs).
-    # If we find the BT already exists, route the rewire through the
-    # bridge — the BlackboardAsset property is protected in UE5.7+ so
-    # set_editor_property cannot reach it.
     if unreal.EditorAssetLibrary.does_asset_exist(_BT_FULL_PATH):
-        existing = unreal.load_asset(_BT_FULL_PATH)
-        if existing is not None and bb_asset is not None:
-            # We cannot cheaply detect "BT already wired correctly" because
-            # the getter is also gated when the underlying property is
-            # protected — calling the bridge unconditionally is idempotent
-            # (writing the same value is a no-op the editor handles).
-            if _wire_blackboard(_BT_FULL_PATH, _BB_FULL_PATH):
-                _log(f"Existing BT at {_BT_FULL_PATH} confirmed wired to "
-                     f"{_BB_NAME}")
-        return existing
+        unreal.EditorAssetLibrary.delete_asset(_BT_FULL_PATH)
+        _log(f"Deleted stale {_BT_FULL_PATH} — will recreate from template.")
 
     if not unreal.EditorAssetLibrary.does_asset_exist(_BT_TEMPLATE_PATH):
         _err(f"Template BT not found at {_BT_TEMPLATE_PATH} — plugin may be "
@@ -282,7 +278,7 @@ def _wire_lyra_enemy_blueprint(bt_asset):
     # lookup can't be done from Python. The bridge walks
     # UBlueprint::SimpleConstructionScript->GetAllNodes() instead, which is
     # the same data with a usable C++ shape.
-    bt_path = unreal.SystemLibrary.get_path_name(bt_asset)
+    bt_path = bt_asset.get_path_name()
     class_path = "/Script/DeltaCode.DCEnemyAIData"
 
     try:

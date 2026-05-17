@@ -906,7 +906,7 @@ def _create_blueprint_if_missing(package_path, bp_name, parent_class_path,
     return blueprint
 
 
-def _add_dc_component(blueprint, bp_name, component_class, component_name):
+def _add_dc_component(blueprint, bp_name, component_class_path, component_name):
     """Attach a DeltaCode runtime component to a Blueprint via DCAIEditorBridge.
 
     Used to give Lyra-parented enemies the same DCFaction / DCEquipment /
@@ -922,17 +922,19 @@ def _add_dc_component(blueprint, bp_name, component_class, component_name):
     never confirm it. C++ reaches FSubobjectData::GetObject() directly, so
     the whole add + verify cycle now lives in UDCAIEditorBridge.
 
+    component_class_path is a /Script/Module.ClassName path string (e.g.
+    "/Script/DeltaCode.DCFactionComponent"), not an unreal.Class wrapper —
+    passing the wrapper trips UE Python's nativize step before the FString
+    UFUNCTION arg is set.
+
     Idempotent: the bridge walks existing subobjects first and short-circuits
     if a template of the same class is already attached.
     """
-    bp_path = unreal.SystemLibrary.get_path_name(blueprint)
-    # SystemLibrary.get_path_name returns /Game/.../BP.BP — LoadObject in
-    # the bridge accepts either form, no normalisation needed.
-    class_path = unreal.SystemLibrary.get_path_name(component_class)
+    bp_path = blueprint.get_path_name()
 
     try:
         result = unreal.DCAIEditorBridge.add_blueprint_component(
-            bp_path, class_path)
+            bp_path, component_class_path)
     except AttributeError:
         unreal.log_error(
             f"DeltaCode: [{bp_name}] unreal.DCAIEditorBridge.add_blueprint_component "
@@ -1015,14 +1017,24 @@ def _create_lyra_enemy_blueprint(force_recreate=False):
     # returns null, which is how this BP-only implementer gets a tree at
     # possession time. The BT pointer itself is set later by
     # dc_create_ai_assets._wire_lyra_enemy_blueprint once the BT asset exists.
+    # Class refs are passed as /Script/Module.ClassName path strings, not
+    # unreal.Class wrappers. The bridge UFUNCTION takes FString and resolves
+    # via LoadClass; passing the wrapper trips Python's nativize step before
+    # the call ever reaches C++ ("Cannot nativize 'DCFactionComponent' as
+    # 'Object'") because UE Python doesn't accept a UClass wrapper where
+    # the signature expects something it can convert to FString.
     _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
-                      unreal.DCFactionComponent, "DCFactionComponent")
+                      "/Script/DeltaCode.DCFactionComponent",
+                      "DCFactionComponent")
     _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
-                      unreal.DCEquipmentComponent, "DCEquipmentComponent")
+                      "/Script/DeltaCode.DCEquipmentComponent",
+                      "DCEquipmentComponent")
     _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
-                      unreal.DCHealthComponent, "DCHealthComponent")
+                      "/Script/DeltaCode.DCHealthComponent",
+                      "DCHealthComponent")
     _add_dc_component(blueprint, _LYRA_ENEMY_BP_NAME,
-                      unreal.DCEnemyAIData, "DCEnemyAIData")
+                      "/Script/DeltaCode.DCEnemyAIData",
+                      "DCEnemyAIData")
 
     # Default AI controller — same controller B_DC_EnemyBase uses, now driven
     # via IDCEnemyAIPawn.
