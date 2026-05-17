@@ -23,9 +23,85 @@
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
+#include "GameFramework/Pawn.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Sight.h"
+#include "UObject/UnrealType.h"
+
+namespace
+{
+	// Reflection-based Lyra hook. Sets ULyraPawnExtensionComponent.PawnData on
+	// the AI-possessed pawn before Super::OnPossess fires, so the chain
+	//   PossessedBy -> HandleControllerChanged -> CheckDefaultInitialization
+	//   -> OnPawnReadyToInitialize.Broadcast
+	// completes and ABP_Mannequin_Base's locomotion state machine activates.
+	//
+	// Without PawnData set, IsPawnReadyToInitialize() returns false, the init
+	// walk halts, and the anim BP stays in a pre-init state — symptom is "AI
+	// moves but mesh slides with no locomotion animation". Player pawns get
+	// PawnData from the Lyra experience system; AI pawns spawned outside an
+	// experience never receive it, which is the case we're patching here.
+	//
+	// SimplePawnData is a stock Lyra asset at /Game/Characters/Heroes/
+	// SimplePawnData/ — an empty-but-valid LyraPawnData. Using it keeps the
+	// AI path independent of any specific Lyra experience content.
+	//
+	// All reflection — no LyraGame link dependency, so DeltaCode runtime still
+	// compiles in non-Lyra projects. Early-outs cleanly when the
+	// LyraPawnExtensionComponent class isn't loaded (non-Lyra project) or
+	// when the pawn doesn't have one (non-Lyra-parented enemy).
+	void TryInitLyraPawnData(APawn* InPawn)
+	{
+		if (!InPawn) return;
+
+		UClass* PawnExtClass = FindObject<UClass>(
+			nullptr, TEXT("/Script/LyraGame.LyraPawnExtensionComponent"));
+		if (!PawnExtClass) return;
+
+		UActorComponent* PawnExt = InPawn->FindComponentByClass(PawnExtClass);
+		if (!PawnExt) return;
+
+		FObjectProperty* PawnDataProp = CastField<FObjectProperty>(
+			PawnExtClass->FindPropertyByName(TEXT("PawnData")));
+		if (!PawnDataProp) return;
+
+		if (PawnDataProp->GetObjectPropertyValue_InContainer(PawnExt))
+		{
+			return;  // already set (e.g. instance override on a placed actor)
+		}
+
+		UObject* PawnData = StaticLoadObject(
+			UObject::StaticClass(), nullptr,
+			TEXT("/Game/Characters/Heroes/SimplePawnData/SimplePawnData.SimplePawnData"));
+		if (!PawnData)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[DC] SimplePawnData not found at /Game/Characters/Heroes/"
+				     "SimplePawnData/SimplePawnData — ABP_Mannequin_Base will not "
+				     "initialize for %s. Lyra version may have moved the asset."),
+				*InPawn->GetName());
+			return;
+		}
+
+		PawnDataProp->SetObjectPropertyValue_InContainer(PawnExt, PawnData);
+
+		// Trigger OnRep_PawnData so the standard Lyra init listeners fire —
+		// same code path replication uses when PawnData propagates to clients.
+		// This is what wakes up the init state machine so HandleControllerChanged
+		// can complete its walk on the next Super::OnPossess.
+		if (UFunction* OnRepFunc = PawnExtClass->FindFunctionByName(
+			TEXT("OnRep_PawnData")))
+		{
+			PawnExt->ProcessEvent(OnRepFunc, nullptr);
+		}
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[DC] Set LyraPawnExtensionComponent.PawnData → SimplePawnData "
+			     "on %s — ABP_Mannequin_Base init unblocked."),
+			*InPawn->GetName());
+	}
+}
 
 ADCEnemyAIController::ADCEnemyAIController()
 {
@@ -53,6 +129,13 @@ ADCEnemyAIController::ADCEnemyAIController()
 
 void ADCEnemyAIController::OnPossess(APawn* InPawn)
 {
+	// Lyra-aware init MUST run before Super — Super::OnPossess invokes
+	// Pawn->PossessedBy, which on ALyraCharacter calls
+	// PawnExtComp->HandleControllerChanged. If PawnData isn't set at that
+	// moment, the init state machine halts and ABP_Mannequin_Base never
+	// transitions out of its pre-init state. See TryInitLyraPawnData above.
+	TryInitLyraPawnData(InPawn);
+
 	Super::OnPossess(InPawn);
 
 	UE_LOG(LogTemp, Display, TEXT("[DC] DCEnemyAIController possessing: %s"),
