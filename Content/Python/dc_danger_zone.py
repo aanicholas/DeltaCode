@@ -613,12 +613,15 @@ def _resolve_mannequin_anim_class():
     for path in candidates:
         cls = unreal.load_class(None, path)
         if cls is None:
+            unreal.log(
+                f"DeltaCode: anim candidate {path} — not loadable in this "
+                f"project, skip.")
             continue
         if lyra_anim_cls is not None and cls.is_child_of(lyra_anim_cls):
             unreal.log(
-                f"DeltaCode: skipping {path} — derives from "
-                f"ULyraAnimInstance, would re-introduce Lyra experience "
-                f"init dependency for AI pawns.")
+                f"DeltaCode: anim candidate {path} — derives from "
+                f"ULyraAnimInstance, skip (would re-introduce Lyra "
+                f"experience init dependency for AI pawns).")
             continue
         _RESOLVED_MANNEQUIN_ANIM_CLASS = cls
         unreal.log(f"DeltaCode: anim class resolved → {path}")
@@ -999,6 +1002,84 @@ def _add_dc_component(blueprint, bp_name, component_class_path, component_name):
     return ok
 
 
+def _ensure_lyra_enemy_mesh_and_anim(blueprint):
+    """Reconcile CharacterMesh0's SkeletalMesh + AnimClass on the BP CDO.
+
+    Idempotent: reads current values, compares to resolver output, writes
+    only if different, then compiles + saves only if anything actually
+    changed. Run on every Build Mission — including against an already-
+    existing B_DC_LyraEnemyBase — so anim-class policy updates (e.g. the
+    ABP_Mannequin_Base → ABP_Unarmed switch) propagate without requiring
+    delete-and-recreate. Mirrors the BB-key idempotent walk in
+    dc_create_ai_assets._create_blackboard.
+
+    Returns True iff something was modified.
+    """
+    try:
+        gen_class = blueprint.generated_class()
+        cdo = unreal.get_default_object(gen_class)
+        all_mesh = cdo.get_components_by_class(unreal.SkeletalMeshComponent)
+        mesh_comp = next(
+            (c for c in all_mesh if c.get_name() == "CharacterMesh0"),
+            all_mesh[0] if all_mesh else None)
+        if mesh_comp is None:
+            unreal.log_warning(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] no SkeletalMeshComponent "
+                f"on CDO — cannot reconcile mesh/anim.")
+            return False
+
+        changed = False
+
+        skel = _resolve_mannequin_mesh()
+        if skel is not None:
+            current_skel = mesh_comp.get_editor_property("skeletal_mesh_asset")
+            if current_skel != skel:
+                mesh_comp.set_editor_property("skeletal_mesh_asset", skel)
+                changed = True
+                unreal.log(
+                    f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] CharacterMesh0."
+                    f"skeletal_mesh_asset → {skel.get_path_name()}")
+
+        anim_class = _resolve_mannequin_anim_class()
+        if anim_class is not None:
+            target_mode = unreal.AnimationMode.ANIMATION_BLUEPRINT
+            current_anim = mesh_comp.get_editor_property("anim_class")
+            current_mode = mesh_comp.get_editor_property("animation_mode")
+            if current_anim != anim_class or current_mode != target_mode:
+                mesh_comp.set_editor_property("animation_mode", target_mode)
+                mesh_comp.set_editor_property("anim_class", anim_class)
+                changed = True
+                unreal.log(
+                    f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] CharacterMesh0."
+                    f"anim_class → {anim_class.get_path_name()}")
+            else:
+                unreal.log(
+                    f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] CharacterMesh0."
+                    f"anim_class already at {anim_class.get_path_name()}.")
+        else:
+            unreal.log_warning(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] anim_class resolution "
+                f"returned None — CharacterMesh0 keeps its existing anim_class.")
+
+        if changed:
+            try:
+                unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+            except Exception as e:
+                unreal.log_warning(
+                    f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] compile_blueprint "
+                    f"after mesh/anim reconcile failed — {e}")
+            unreal.EditorAssetLibrary.save_asset(_LYRA_ENEMY_BP_PATH)
+            unreal.log(
+                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh/anim reconciled — "
+                f"compiled + saved.")
+        return changed
+    except Exception as e:
+        unreal.log_warning(
+            f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh/anim reconcile failed "
+            f"— {e}")
+        return False
+
+
 def _create_lyra_enemy_blueprint(force_recreate=False):
     """Create B_DC_LyraEnemyBase parented off ALyraCharacter.
 
@@ -1013,6 +1094,11 @@ def _create_lyra_enemy_blueprint(force_recreate=False):
     on the wiring pass — keeping creation here and wiring there mirrors how
     B_DC_EnemyBase is split across the two scripts.
 
+    On every Build Mission, mesh + AnimClass on the existing BP are
+    reconciled against the current resolver output via
+    _ensure_lyra_enemy_mesh_and_anim — so anim-class policy changes pick up
+    without delete-and-recreate.
+
     Returns the Blueprint asset on success, None otherwise. Failure logs and
     falls back — caller continues with B_DC_EnemyBase routing.
     """
@@ -1022,8 +1108,12 @@ def _create_lyra_enemy_blueprint(force_recreate=False):
     if unreal.EditorAssetLibrary.does_asset_exist(_LYRA_ENEMY_BP_PATH):
         if not force_recreate:
             unreal.log(
-                f"DeltaCode: {_LYRA_ENEMY_BP_NAME} already exists, skipping.")
-            return unreal.load_asset(_LYRA_ENEMY_BP_PATH)
+                f"DeltaCode: {_LYRA_ENEMY_BP_NAME} already exists — "
+                f"reconciling mesh/anim before returning.")
+            blueprint = unreal.load_asset(_LYRA_ENEMY_BP_PATH)
+            if blueprint is not None:
+                _ensure_lyra_enemy_mesh_and_anim(blueprint)
+            return blueprint
         unreal.EditorAssetLibrary.delete_asset(_LYRA_ENEMY_BP_PATH)
         unreal.log(f"DeltaCode: {_LYRA_ENEMY_BP_NAME} deleted for recreate.")
 
@@ -1098,31 +1188,9 @@ def _create_lyra_enemy_blueprint(force_recreate=False):
     # Lyra mannequin mesh + AnimBP on the inherited CharacterMesh0. ALyraCharacter
     # ships without a mesh assigned by default (it normally comes from PawnData
     # via the Experience system). Outside an Experience, set them ourselves so
-    # the pawn isn't invisible.
-    try:
-        gen_class = blueprint.generated_class()
-        cdo = unreal.get_default_object(gen_class)
-        all_mesh = cdo.get_components_by_class(unreal.SkeletalMeshComponent)
-        mesh_comp = next(
-            (c for c in all_mesh if c.get_name() == "CharacterMesh0"),
-            all_mesh[0] if all_mesh else None)
-        if mesh_comp is not None:
-            skel = _resolve_mannequin_mesh()
-            if skel is not None:
-                mesh_comp.set_editor_property("skeletal_mesh_asset", skel)
-            anim_class = _resolve_mannequin_anim_class()
-            if anim_class is not None:
-                mesh_comp.set_editor_property(
-                    "animation_mode",
-                    unreal.AnimationMode.ANIMATION_BLUEPRINT)
-                mesh_comp.set_editor_property("anim_class", anim_class)
-            unreal.log(
-                f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh + anim class set on "
-                f"CharacterMesh0.")
-    except Exception as e:
-        unreal.log_warning(
-            f"DeltaCode: [{_LYRA_ENEMY_BP_NAME}] mesh/anim wiring failed "
-            f"— {e}")
+    # the pawn isn't invisible. Same helper handles the re-run reconcile path,
+    # so anim-class resolver updates propagate to already-created BPs too.
+    _ensure_lyra_enemy_mesh_and_anim(blueprint)
 
     try:
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
