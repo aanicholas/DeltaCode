@@ -510,6 +510,16 @@ _MANNEQUIN_ANIM_CLASS_FALLBACKS = [
     "/Game/Characters/Mannequins/Animations/ABP_Quinn.ABP_Quinn_C",
 ]
 
+# AI-pawn-preferred AnimBP. UE5 ThirdPerson template's ABP_Unarmed is
+# parented off UAnimInstance and drives BS_Idle_Walk_Run from velocity —
+# no Lyra/experience init deps. Tried before ABP_Mannequin_Base because
+# the Lyra ABP reads gameplay-tag and ability-system state that AI pawns
+# spawned outside an Experience never receive; symptom is enemies sliding
+# with no locomotion despite PawnData being wired in DCEnemyAIController.
+_AI_ANIM_CLASS_PREFERRED = (
+    "/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"
+)
+
 # Resolution caches. None = not yet tried. False = tried and failed (warned).
 _RESOLVED_MANNEQUIN_MESH = None
 _RESOLVED_MANNEQUIN_ANIM_CLASS = None
@@ -575,21 +585,46 @@ def _resolve_mannequin_mesh():
 
 
 def _resolve_mannequin_anim_class():
-    """Return the mannequin AnimBlueprint generated UClass, with same primary
-    + fallback + warn-once semantics as _resolve_mannequin_mesh()."""
+    """Return the mannequin AnimBlueprint generated UClass.
+
+    Resolution order: AI-preferred (non-Lyra) ABP_Unarmed first, then the
+    Lyra ABP_Mannequin_Base primary, then the UE5 ThirdPerson fallbacks.
+    Any candidate that resolves but inherits ULyraAnimInstance is skipped
+    — Lyra anim instances depend on gameplay-tag and ability-system state
+    that AI pawns spawned outside a Lyra Experience never receive, which
+    is what causes the slide-with-no-locomotion symptom even after
+    PawnData wiring. Caches the first usable result; warn-once on total
+    miss matches _resolve_mannequin_mesh() semantics.
+    """
     global _RESOLVED_MANNEQUIN_ANIM_CLASS
     if _RESOLVED_MANNEQUIN_ANIM_CLASS is False:
         return None
     if _RESOLVED_MANNEQUIN_ANIM_CLASS is not None:
         return _RESOLVED_MANNEQUIN_ANIM_CLASS
-    candidates = (_MANNEQUIN_ANIM_CLASS, *_MANNEQUIN_ANIM_CLASS_FALLBACKS)
+    # load_class returns None in non-Lyra projects — the is_child_of guard
+    # below short-circuits cleanly in that case so the check costs nothing.
+    lyra_anim_cls = unreal.load_class(
+        None, "/Script/LyraGame.LyraAnimInstance")
+    candidates = (
+        _AI_ANIM_CLASS_PREFERRED,
+        _MANNEQUIN_ANIM_CLASS,
+        *_MANNEQUIN_ANIM_CLASS_FALLBACKS,
+    )
     for path in candidates:
         cls = unreal.load_class(None, path)
-        if cls is not None:
-            _RESOLVED_MANNEQUIN_ANIM_CLASS = cls
-            return cls
+        if cls is None:
+            continue
+        if lyra_anim_cls is not None and cls.is_child_of(lyra_anim_cls):
+            unreal.log(
+                f"DeltaCode: skipping {path} — derives from "
+                f"ULyraAnimInstance, would re-introduce Lyra experience "
+                f"init dependency for AI pawns.")
+            continue
+        _RESOLVED_MANNEQUIN_ANIM_CLASS = cls
+        unreal.log(f"DeltaCode: anim class resolved → {path}")
+        return cls
     unreal.log_warning(
-        f"DeltaCode: No mannequin AnimBlueprint found. Tried: "
+        f"DeltaCode: No usable mannequin AnimBlueprint found. Tried: "
         f"{', '.join(candidates)}. Spawned actors will not animate.")
     _RESOLVED_MANNEQUIN_ANIM_CLASS = False
     return None
